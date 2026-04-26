@@ -20,7 +20,7 @@ const state = {
   pickerLoaded: false,
 };
 
-const SCREENS = ['landing', 'picker', 'room', 'game', 'gameover'];
+const SCREENS = ['landing', 'room', 'game', 'gameover'];
 
 /* ─── Utilities ────────────────────────────────────────────────── */
 
@@ -163,7 +163,9 @@ function handleServerMessage(msg) {
     case 'spectator_added':
     case 'spectator_left':
     case 'player_disconnected':
-    case 'player_reconnected': {
+    case 'player_reconnected':
+    case 'bot_added':
+    case 'bot_removed': {
       mergeRoomState(msg);
       renderForState();
       break;
@@ -291,23 +293,29 @@ function renderRoom() {
   for (const s of specs) specsEl.appendChild(renderPerson(s, r));
   $('spectators-count').textContent = `${specs.length}`;
 
-  // Host gets a Start button when min players are seated.
+  // Host gets Start + Add Bot when seats permit.
   const isHost = r.hostId === state.playerId;
-  const enoughPlayers = (r.players || []).length >= (r.minPlayers || 2);
+  const playerCount = (r.players || []).length;
+  const enoughPlayers = playerCount >= (r.minPlayers || 2);
+  const roomFull = playerCount >= (r.maxPlayers || 2);
   const startBtn = $('start-btn');
+  const addBotBtn = $('add-bot-btn');
   const waitMsg = $('waiting-msg');
 
   if (state.role === 'spectator') {
     startBtn.classList.add('hidden');
+    addBotBtn.classList.add('hidden');
     waitMsg.classList.remove('hidden');
     waitMsg.textContent = enoughPlayers ? 'Waiting for host to start…' : 'Waiting for players…';
   } else if (isHost) {
     startBtn.classList.remove('hidden');
     startBtn.disabled = !enoughPlayers;
     startBtn.textContent = enoughPlayers ? 'Start Game' : `Need ${r.minPlayers} players`;
+    addBotBtn.classList.toggle('hidden', roomFull);
     waitMsg.classList.add('hidden');
   } else {
     startBtn.classList.add('hidden');
+    addBotBtn.classList.add('hidden');
     waitMsg.classList.remove('hidden');
     waitMsg.textContent = enoughPlayers ? 'Waiting for host to start…' : 'Waiting for players…';
   }
@@ -321,16 +329,21 @@ function renderPerson(person, room) {
 
   const name = document.createElement('span');
   name.className = 'person-name';
-  name.textContent = person.name + (person.connected ? '' : ' (offline)');
+  name.textContent = person.name + (person.connected || person.isBot ? '' : ' (offline)');
   li.appendChild(name);
 
-  if (person.id === state.playerId) {
+  if (person.isBot) {
+    const tag = document.createElement('span');
+    tag.className = 'person-tag person-tag-bot';
+    tag.textContent = 'Bot';
+    li.appendChild(tag);
+  } else if (person.id === state.playerId) {
     const tag = document.createElement('span');
     tag.className = 'person-tag person-tag-self';
     tag.textContent = 'You';
     li.appendChild(tag);
   }
-  if (person.id === room.hostId) {
+  if (!person.isBot && person.id === room.hostId) {
     const tag = document.createElement('span');
     tag.className = 'person-tag';
     tag.textContent = 'Host';
@@ -342,6 +355,16 @@ function renderPerson(person, room) {
     tag.className = 'person-tag person-tag-mark';
     tag.textContent = room.marks[person.id];
     li.appendChild(tag);
+  }
+  // Host-only kick button for bots in the lobby.
+  if (person.isBot && room.roomState === 'lobby' && room.hostId === state.playerId) {
+    const btn = document.createElement('button');
+    btn.className = 'person-remove';
+    btn.type = 'button';
+    btn.setAttribute('aria-label', `Remove ${person.name}`);
+    btn.textContent = '×';
+    btn.addEventListener('click', () => send({ type: 'remove_bot', botId: person.id }));
+    li.appendChild(btn);
   }
   return li;
 }
@@ -506,25 +529,17 @@ function renderPicker() {
     name.textContent = g.name;
     tile.appendChild(name);
 
-    const desc = document.createElement('span');
-    desc.className = 'picker-tile-desc';
-    desc.textContent = g.tagline;
-    tile.appendChild(desc);
-
     const meta = document.createElement('span');
     meta.className = 'picker-tile-meta' + (g.available ? '' : ' picker-tile-soon');
-    if (g.available) {
-      const range = g.minPlayers === g.maxPlayers ? `${g.minPlayers} players` : `${g.minPlayers}–${g.maxPlayers} players`;
-      meta.textContent = range;
-    } else {
-      meta.textContent = 'Coming soon';
-    }
+    meta.textContent = g.available ? '' : 'Soon';
     tile.appendChild(meta);
 
     tile.addEventListener('click', () => {
       if (!g.available) return;
-      const name = (state.myName || '').trim();
-      send({ type: 'create_room', gameType: g.type, playerName: name });
+      const playerName = ($('player-name').value || '').trim();
+      if (!playerName) { toast('Enter your name first'); $('player-name').focus(); return; }
+      state.myName = playerName;
+      send({ type: 'create_room', gameType: g.type, playerName });
     });
     list.appendChild(tile);
   }
@@ -535,16 +550,9 @@ function renderPicker() {
 function init() {
   connect();
 
-  $('create-btn').addEventListener('click', async () => {
-    const name = $('player-name').value.trim();
-    if (!name) { toast('Enter your name first'); $('player-name').focus(); return; }
-    state.myName = name;
-    await loadGameCatalog();
-    renderPicker();
-    showScreen('picker');
-  });
-
-  $('picker-back-btn').addEventListener('click', () => showScreen('landing'));
+  // Load the game catalog up front so the landing tiles are ready
+  // by the time the user types their name.
+  loadGameCatalog().then(renderPicker);
 
   $('join-btn').addEventListener('click', () => {
     const name = $('player-name').value.trim();
@@ -578,6 +586,7 @@ function init() {
   });
 
   $('start-btn').addEventListener('click', () => send({ type: 'start_game' }));
+  $('add-bot-btn').addEventListener('click', () => send({ type: 'add_bot' }));
   $('play-again-btn').addEventListener('click', () => send({ type: 'play_again' }));
 }
 
