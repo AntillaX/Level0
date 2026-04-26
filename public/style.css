@@ -282,32 +282,46 @@ body {
   width: 100%;
   max-width: 460px;
   margin: 0 auto;
-  padding: 4.5rem 1.25rem 1.5rem;
+  padding: 4.5rem 1.25rem 3rem;
   padding-left: max(1.25rem, env(safe-area-inset-left));
   padding-right: max(1.25rem, env(safe-area-inset-right));
-  padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+  padding-bottom: max(3rem, calc(env(safe-area-inset-bottom) + 1.5rem));
 }
 .landing-top { flex: 0 0 auto; }
 .landing-bottom {
+  /* Push the tiles below the top stack but leave a comfortable gap
+     above the screen edge — they shouldn't feel pinned. */
   margin-top: auto;
-  padding-top: 2rem;
+  padding-top: 2.5rem;
+  margin-bottom: 1.25rem;
 }
 .landing-bottom-label {
-  margin-bottom: 0.6rem;
+  margin-bottom: 0.7rem;
   text-align: center;
 }
 
+/* Horizontal row of game tiles. Tiles share width when ≤3 fit; once
+   the catalog grows past that, they keep their min-width and the row
+   becomes a snap-scrollable carousel so the design doesn't crunch. */
 .picker-list {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 1fr;
+  display: flex;
   gap: 0.7rem;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  /* Hide the scrollbar but keep wheel/touch scroll working. */
+  scrollbar-width: none;
+  padding-bottom: 0.25rem;
 }
+.picker-list::-webkit-scrollbar { display: none; }
 .picker-tile {
   display: flex;
   align-items: center;
   justify-content: center;
   text-align: center;
+  flex: 1 1 0;
+  min-width: 130px;
+  scroll-snap-align: start;
   padding: 1rem 0.6rem;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border);
@@ -564,12 +578,11 @@ body {
 }
 .ttt-winline-stroke {
   stroke: var(--accent);
-  stroke-width: 0.08;
   stroke-linecap: round;
   fill: none;
-  filter: drop-shadow(0 0 6px var(--accent-glow));
-  stroke-dasharray: var(--len, 4);
-  stroke-dashoffset: var(--len, 4);
+  filter: drop-shadow(0 0 8px var(--accent-glow));
+  stroke-dasharray: var(--len, 400);
+  stroke-dashoffset: var(--len, 400);
   animation: draw-winline 0.55s ease-out forwards;
 }
 @keyframes draw-winline { to { stroke-dashoffset: 0; } }
