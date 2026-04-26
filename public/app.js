@@ -187,12 +187,15 @@ function handleServerMessage(msg) {
     case 'game_over': {
       // game_over arrives just after a game_update that already set
       // status:'finished', so the board is current. We still merge
-      // the wins map and switch screens.
+      // the wins map and switch screens — but pause briefly first
+      // so the winning line animation gets to play before we yank
+      // the board off-screen.
       if (state.room) {
         state.room.result = msg.result;
         state.room.wins = msg.wins;
       }
-      goToGameOver();
+      const isWin = msg.result && msg.result.kind === 'win';
+      setTimeout(goToGameOver, isWin ? 1200 : 400);
       track('level0_game_over', {
         game: state.room && state.room.gameType,
         kind: msg.result && msg.result.kind,
@@ -414,7 +417,8 @@ function renderTicTacToe(stage, r) {
   const board = document.createElement('div');
   board.className = 'ttt-board';
 
-  const winningSet = new Set(r.result && r.result.kind === 'win' ? r.result.line : []);
+  const winLine = (r.result && r.result.kind === 'win') ? r.result.line : null;
+  const winningSet = new Set(winLine || []);
 
   for (let i = 0; i < 9; i++) {
     const cell = document.createElement('button');
@@ -442,7 +446,41 @@ function renderTicTacToe(stage, r) {
     board.appendChild(cell);
   }
 
+  if (winLine) board.appendChild(buildWinLineSvg(winLine));
+
   stage.appendChild(board);
+}
+
+// Coordinate space matches the 3×3 grid: (col, row), each in 0..3.
+// Cell N has col = N % 3, row = floor(N / 3); center is +0.5.
+function buildWinLineSvg(line) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('class', 'ttt-winline');
+  svg.setAttribute('viewBox', '0 0 3 3');
+  svg.setAttribute('preserveAspectRatio', 'none');
+
+  const [a, , c] = line;
+  const x1 = (a % 3) + 0.5, y1 = Math.floor(a / 3) + 0.5;
+  const x2 = (c % 3) + 0.5, y2 = Math.floor(c / 3) + 0.5;
+  const len = Math.hypot(x2 - x1, y2 - y1);
+
+  // Inset each end slightly so the line doesn't poke out of the cells.
+  const inset = 0.15;
+  const dx = (x2 - x1) / len, dy = (y2 - y1) / len;
+  const sx = x1 + dx * inset, sy = y1 + dy * inset;
+  const ex = x2 - dx * inset, ey = y2 - dy * inset;
+  const drawLen = Math.hypot(ex - sx, ey - sy);
+
+  const path = document.createElementNS(NS, 'line');
+  path.setAttribute('class', 'ttt-winline-stroke');
+  path.setAttribute('x1', sx);
+  path.setAttribute('y1', sy);
+  path.setAttribute('x2', ex);
+  path.setAttribute('y2', ey);
+  path.style.setProperty('--len', drawLen);
+  svg.appendChild(path);
+  return svg;
 }
 
 function renderScoreboard(el, r) {
