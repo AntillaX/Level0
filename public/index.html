@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <meta name="theme-color" content="#0a0a0a">
   <title>Level 0 &middot; PLATFORMVV</title>
   <link rel="stylesheet" href="style.css">
@@ -19,24 +19,28 @@
 <body>
   <div id="app">
 
-    <!-- Landing — name + game tiles + join, all on one screen -->
-    <section id="landing-screen" class="screen active">
+    <!-- Landing — name + join up top, game tiles anchored at the bottom -->
+    <section id="landing-screen" class="screen active landing">
       <a href="/" class="btn-home" aria-label="Back to platformvv hub">&larr; Hub</a>
-      <div class="container container-narrow">
-        <h1 class="title">LEVEL 0</h1>
+      <div class="landing-inner">
+        <div class="landing-top">
+          <h1 class="title">LEVEL 0</h1>
 
-        <div class="form">
-          <input type="text" id="player-name" class="input" placeholder="Your name" maxlength="16" autocomplete="off" spellcheck="false">
+          <div class="form">
+            <input type="text" id="player-name" class="input" placeholder="Your name" maxlength="16" autocomplete="off" spellcheck="false">
 
-          <p class="form-label">Pick a game</p>
-          <div id="picker-list" class="picker-list"></div>
+            <div class="divider"><span>or join</span></div>
 
-          <div class="divider"><span>or join</span></div>
-
-          <div class="join-row">
-            <input type="text" id="room-code-input" class="input input-code" placeholder="CODE" maxlength="4" autocomplete="off" spellcheck="false">
-            <button id="join-btn" class="btn btn-secondary">Join</button>
+            <div class="join-row">
+              <input type="text" id="room-code-input" class="input input-code" placeholder="CODE" maxlength="4" autocomplete="off" spellcheck="false">
+              <button id="join-btn" class="btn btn-secondary">Join</button>
+            </div>
           </div>
+        </div>
+
+        <div class="landing-bottom">
+          <p class="form-label landing-bottom-label">Pick a game</p>
+          <div id="picker-list" class="picker-list"></div>
         </div>
       </div>
     </section>
@@ -45,13 +49,11 @@
     <section id="room-screen" class="screen">
       <button id="room-leave-btn" class="btn-home">&larr; Leave</button>
       <div class="container container-narrow">
-        <p class="eyebrow" id="room-game-name">Tic-Tac-Toe</p>
-        <h2 class="screen-title">Room</h2>
+        <p class="eyebrow eyebrow-lg" id="room-game-name">Tic-Tac-Toe</p>
         <div class="room-code-row">
           <span id="room-code" class="room-code"></span>
           <button id="room-copy-btn" class="btn-ghost" aria-label="Copy room code">Copy</button>
         </div>
-        <p class="hint" id="room-hint">Share the code with a friend.</p>
 
         <div class="people">
           <div class="people-section">
