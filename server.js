@@ -284,6 +284,16 @@ function handleMessage(ws, msg) {
       break;
     }
 
+    case 'forfeit': {
+      const room = rooms.get(ws.roomCode);
+      if (!room) return;
+      const result = room.forfeitNow(ws.playerId);
+      if (!result.success) {
+        ws.send(JSON.stringify({ type: 'error', message: result.error }));
+      }
+      break;
+    }
+
     case 'leave_room': {
       if (ws.roomCode && ws.playerId) {
         const room = rooms.get(ws.roomCode);
