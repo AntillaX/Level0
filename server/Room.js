@@ -3,6 +3,7 @@ const { GAMES } = require('./games');
 
 const SPECTATOR_LIMIT = 20;
 const BOT_NAMES = ['Atlas', 'Echo', 'Nova', 'Sage', 'Pixel', 'Onyx'];
+const OPPONENT_GRACE_MS = 10000;
 
 class Room {
   constructor(code, gameType) {
@@ -95,6 +96,9 @@ class Room {
     if (!occ) return { success: false, error: 'You are not in this room' };
     occ.ws = ws;
     occ.connected = true;
+    // If we were running an opponent-grace timer for this player,
+    // they're back — cancel and let everyone know.
+    this.clearOpponentGrace();
     return { success: true, role: occ.role };
   }
 
@@ -113,7 +117,11 @@ class Room {
     if (this.state === 'lobby' || occ.isSpectator) {
       this.occupants.delete(id);
       if (!occ.isSpectator && this.hostId === id) {
+        const previousHost = this.hostId;
         this.reassignHost();
+        if (this.hostId && this.hostId !== previousHost) {
+          this.broadcast({ type: 'host_changed', hostId: this.hostId, ...this.getState() });
+        }
       }
       this.broadcast({
         type: occ.isSpectator ? 'spectator_left' : 'player_left',
@@ -130,13 +138,25 @@ class Room {
       playerName: occ.name,
       ...this.getState(),
     });
+
+    // Mid-game disconnect — if any seated human is now offline,
+    // start a 10s grace timer that ends the round if they don't
+    // come back. The surviving player can also tap "End round" to
+    // skip the wait (handled by the 'forfeit' message).
+    this.maybeStartOpponentGrace(occ.name);
   }
 
   removeOccupant(id) {
     const occ = this.occupants.get(id);
     if (!occ) return;
     this.occupants.delete(id);
-    if (!occ.isSpectator && this.hostId === id) this.reassignHost();
+    if (!occ.isSpectator && this.hostId === id) {
+      const previousHost = this.hostId;
+      this.reassignHost();
+      if (this.hostId && this.hostId !== previousHost) {
+        this.broadcast({ type: 'host_changed', hostId: this.hostId, ...this.getState() });
+      }
+    }
     this.broadcast({
       type: occ.isSpectator ? 'spectator_left' : 'player_left',
       leftId: id,
@@ -147,7 +167,8 @@ class Room {
 
   reassignHost() {
     for (const p of this.occupants.values()) {
-      if (!p.isSpectator) {
+      // Don't promote bots or spectators to host.
+      if (!p.isSpectator && !p.isBot) {
         this.hostId = p.id;
         return;
       }
@@ -206,10 +227,69 @@ class Room {
 
   onGameEnd() {
     this.state = 'finished';
+    this.clearOpponentGrace();
     // Snapshot the running tally so the next round starts with it.
     if (this.game && this.game.wins) {
       this.persistentWins = { ...this.game.wins };
     }
+  }
+
+  // ── Opponent grace (mid-game disconnect) ─────────────────────────
+  // Started when a seated player disconnects mid-game. After the
+  // grace window (or when a survivor taps "End round"), the round
+  // ends and the still-connected player is awarded the win — same
+  // pattern as Auction's last_player_warning.
+
+  maybeStartOpponentGrace(triggerName) {
+    if (this.opponentGraceTimer) return;
+    if (!this.game || this.state !== 'playing') return;
+
+    // Only meaningful if at least one seated *human* is offline AND
+    // at least one connected human remains to inherit the win.
+    const seated = this.players();
+    const offlineHuman = seated.some((p) => !p.isBot && !p.connected);
+    const onlineHuman = seated.some((p) => !p.isBot && p.connected);
+    if (!offlineHuman || !onlineHuman) return;
+
+    this.opponentGraceTimer = setTimeout(() => {
+      this.opponentGraceTimer = null;
+      this.endGameByForfeit();
+    }, OPPONENT_GRACE_MS);
+
+    this.broadcast({
+      type: 'opponent_left_warning',
+      leftName: triggerName,
+      graceMs: OPPONENT_GRACE_MS,
+      ...this.getState(),
+    });
+  }
+
+  clearOpponentGrace() {
+    if (!this.opponentGraceTimer) return;
+    clearTimeout(this.opponentGraceTimer);
+    this.opponentGraceTimer = null;
+    this.broadcast({ type: 'opponent_returned', ...this.getState() });
+  }
+
+  endGameByForfeit() {
+    if (!this.game || this.state !== 'playing') return;
+    // Award to the first still-connected human; if none, just abandon.
+    const survivor = this.players().find((p) => !p.isBot && p.connected) || null;
+    this.game.endGame('opponent_left', survivor ? survivor.id : null);
+  }
+
+  forfeitNow(callerId) {
+    // Surviving player tapped "End round". Only honor if they're
+    // currently a connected seated human and a grace timer is live.
+    if (!this.opponentGraceTimer) return { success: false, error: 'No grace timer running' };
+    const occ = this.occupants.get(callerId);
+    if (!occ || occ.isSpectator || occ.isBot || !occ.connected) {
+      return { success: false, error: 'Only a connected player can end the round' };
+    }
+    clearTimeout(this.opponentGraceTimer);
+    this.opponentGraceTimer = null;
+    this.endGameByForfeit();
+    return { success: true };
   }
 
   // ── messaging ────────────────────────────────────────────────────
@@ -258,6 +338,10 @@ class Room {
   }
 
   destroy() {
+    if (this.opponentGraceTimer) {
+      clearTimeout(this.opponentGraceTimer);
+      this.opponentGraceTimer = null;
+    }
     if (this.game && typeof this.game.destroy === 'function') {
       this.game.destroy();
     }

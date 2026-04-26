@@ -18,6 +18,14 @@ const state = {
   // Catalog
   games: [],
   pickerLoaded: false,
+
+  // Mid-game opponent disconnect — { leftName, endsAt } or null.
+  forfeit: null,
+  forfeitTickTimer: null,
+
+  // Last known wins map so we can detect changes and pulse the
+  // score card belonging to whoever just won.
+  lastWins: null,
 };
 
 const SCREENS = ['landing', 'room', 'game', 'gameover'];
@@ -154,6 +162,13 @@ function handleServerMessage(msg) {
       state.role = msg.role || (msg.type === 'spectator_joined' ? 'spectator' : 'player');
       state.room = msg;
       saveSession();
+      // Auto-spectator: if the user tapped Join but the room was full
+      // or already started, the server quietly seats them as a
+      // spectator. Surface that with a toast so they know they aren't
+      // playing this round.
+      if (msg.type === 'spectator_joined') {
+        toast('Game in progress — joined as spectator');
+      }
       renderForState();
       break;
     }
@@ -167,6 +182,35 @@ function handleServerMessage(msg) {
     case 'bot_added':
     case 'bot_removed': {
       mergeRoomState(msg);
+      renderForState();
+      break;
+    }
+
+    case 'host_changed': {
+      // The previous host left and someone else inherited the role.
+      // Toast only the *new* host so they realise they have controls now.
+      mergeRoomState(msg);
+      if (msg.hostId === state.playerId) {
+        toast("You're the host now");
+      }
+      renderForState();
+      break;
+    }
+
+    case 'opponent_left_warning': {
+      mergeRoomState(msg);
+      state.forfeit = {
+        leftName: msg.leftName,
+        endsAt: Date.now() + (msg.graceMs || 10000),
+      };
+      renderForState();
+      startForfeitCountdown();
+      break;
+    }
+    case 'opponent_returned': {
+      mergeRoomState(msg);
+      state.forfeit = null;
+      stopForfeitCountdown();
       renderForState();
       break;
     }
@@ -189,13 +233,16 @@ function handleServerMessage(msg) {
       // status:'finished', so the board is current. We still merge
       // the wins map and switch screens — but pause briefly first
       // so the winning line animation gets to play before we yank
-      // the board off-screen.
+      // the board off-screen. (Forfeits don't have a line, so we
+      // skip the long pause for those.)
       if (state.room) {
         state.room.result = msg.result;
         state.room.wins = msg.wins;
       }
-      const isWin = msg.result && msg.result.kind === 'win';
-      setTimeout(goToGameOver, isWin ? 1200 : 400);
+      state.forfeit = null;
+      stopForfeitCountdown();
+      const isLineWin = msg.result && msg.result.kind === 'win' && msg.result.line;
+      setTimeout(goToGameOver, isLineWin ? 1200 : 400);
       track('level0_game_over', {
         game: state.room && state.room.gameType,
         kind: msg.result && msg.result.kind,
@@ -390,6 +437,41 @@ function renderGame() {
   }
   renderer(stage, r);
   renderScoreboard($('scoreboard'), r);
+  renderForfeitBanner();
+}
+
+// ── Mid-game opponent grace banner ──────────────────────────────
+// Driven by state.forfeit (set on opponent_left_warning, cleared on
+// opponent_returned). The countdown ticker just re-renders the text;
+// the actual round ending is server-side.
+
+function renderForfeitBanner() {
+  const banner = $('forfeit-banner');
+  const text = $('forfeit-text');
+  if (!state.forfeit) {
+    banner.classList.add('hidden');
+    return;
+  }
+  banner.classList.remove('hidden');
+  const remaining = Math.max(0, Math.ceil((state.forfeit.endsAt - Date.now()) / 1000));
+  const name = state.forfeit.leftName || 'Opponent';
+  text.innerHTML = `<span class="forfeit-text-name">${name}</span> left — ` +
+    `<span class="forfeit-text-count">round ends in ${remaining}s</span>`;
+}
+
+function startForfeitCountdown() {
+  stopForfeitCountdown();
+  state.forfeitTickTimer = setInterval(() => {
+    if (!state.forfeit) { stopForfeitCountdown(); return; }
+    renderForfeitBanner();
+    if (state.forfeit.endsAt - Date.now() <= 0) stopForfeitCountdown();
+  }, 250);
+}
+function stopForfeitCountdown() {
+  if (state.forfeitTickTimer) {
+    clearInterval(state.forfeitTickTimer);
+    state.forfeitTickTimer = null;
+  }
 }
 
 /* ─── Render: Tic-Tac-Toe ──────────────────────────────────────── */
@@ -498,10 +580,15 @@ function buildWinLineSvg(line, board) {
 function renderScoreboard(el, r) {
   el.innerHTML = '';
   if (!r.players) return;
+  // Compare incoming wins to last seen so we can pulse the card of
+  // whoever just got a point. Reset detection on a new room.
+  const prev = state.lastWins || {};
+  const curr = r.wins || {};
   for (const p of r.players) {
     const card = document.createElement('div');
     card.className = 'score-card';
     if (p.id === r.currentTurn && r.status === 'playing') card.classList.add('is-active');
+    if ((curr[p.id] || 0) > (prev[p.id] || 0)) card.classList.add('is-celebrating');
 
     const name = document.createElement('span');
     name.className = 'score-card-name';
@@ -516,6 +603,7 @@ function renderScoreboard(el, r) {
 
     el.appendChild(card);
   }
+  state.lastWins = { ...curr };
 }
 
 /* ─── Render: Game over ────────────────────────────────────────── */
@@ -528,10 +616,11 @@ function renderGameOver() {
   const sub = $('gameover-sub');
   if (r.result && r.result.kind === 'win') {
     const winner = (r.players || []).find((p) => p.id === r.result.winnerId);
+    const byForfeit = r.result.by === 'opponent_left';
     if (winner) {
       const isYou = winner.id === state.playerId;
       title.textContent = isYou ? 'You win' : `${winner.name} wins`;
-      sub.textContent = isYou ? 'Nice one.' : 'Better luck next round.';
+      sub.textContent = byForfeit ? 'Opponent left.' : (isYou ? 'Nice one.' : 'Better luck next round.');
     } else {
       title.textContent = 'Winner';
       sub.textContent = '';
@@ -539,6 +628,9 @@ function renderGameOver() {
   } else if (r.result && r.result.kind === 'draw') {
     title.textContent = 'Draw';
     sub.textContent = 'Even game.';
+  } else if (r.result && r.result.kind === 'abandoned') {
+    title.textContent = 'Round ended';
+    sub.textContent = 'No one was around to finish.';
   } else {
     title.textContent = 'Game over';
     sub.textContent = '';
@@ -568,6 +660,13 @@ async function loadGameCatalog() {
 function renderPicker() {
   const list = $('picker-list');
   list.innerHTML = '';
+  // Toggle the right-edge fade gradient based on whether the row
+  // actually overflows. Done after layout via rAF.
+  requestAnimationFrame(() => {
+    const overflowing = list.scrollWidth > list.clientWidth + 1;
+    const wrap = list.parentElement;
+    if (wrap) wrap.classList.toggle('has-overflow', overflowing);
+  });
   for (const g of state.games) {
     const tile = document.createElement('button');
     tile.type = 'button';
@@ -604,13 +703,24 @@ function init() {
   // by the time the user types their name.
   loadGameCatalog().then(renderPicker);
 
-  $('join-btn').addEventListener('click', () => {
+  // Auto-focus the name input on first load, but skip when we
+  // resumed a session so we don't yank the keyboard up after
+  // a refresh into an active room.
+  if (!loadSession()) {
+    setTimeout(() => $('player-name').focus({ preventScroll: true }), 0);
+  }
+
+  const tryJoin = () => {
     const name = $('player-name').value.trim();
     const code = $('room-code-input').value.trim().toUpperCase();
     if (!name) { toast('Enter your name first'); $('player-name').focus(); return; }
     if (!/^[A-Z]{4}$/.test(code)) { toast('Enter a 4-letter code'); return; }
     state.myName = name;
     send({ type: 'join_room', roomCode: code, playerName: name });
+  };
+  $('join-btn').addEventListener('click', tryJoin);
+  $('room-code-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); tryJoin(); }
   });
 
   $('room-code-input').addEventListener('input', (e) => {
@@ -638,6 +748,7 @@ function init() {
   $('start-btn').addEventListener('click', () => send({ type: 'start_game' }));
   $('add-bot-btn').addEventListener('click', () => send({ type: 'add_bot' }));
   $('play-again-btn').addEventListener('click', () => send({ type: 'play_again' }));
+  $('forfeit-btn').addEventListener('click', () => send({ type: 'forfeit' }));
 }
 
 document.addEventListener('DOMContentLoaded', init);
