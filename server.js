@@ -242,6 +242,38 @@ function handleMessage(ws, msg) {
       break;
     }
 
+    case 'add_bot': {
+      const room = rooms.get(ws.roomCode);
+      if (!room) return;
+      if (room.hostId !== ws.playerId) {
+        ws.send(JSON.stringify({ type: 'error', message: 'Only the host can add a bot' }));
+        return;
+      }
+      const result = room.addBot();
+      if (!result.success) {
+        ws.send(JSON.stringify({ type: 'error', message: result.error }));
+        return;
+      }
+      room.broadcast({ type: 'bot_added', ...room.getState() });
+      break;
+    }
+
+    case 'remove_bot': {
+      const room = rooms.get(ws.roomCode);
+      if (!room) return;
+      if (room.hostId !== ws.playerId) {
+        ws.send(JSON.stringify({ type: 'error', message: 'Only the host can remove a bot' }));
+        return;
+      }
+      const result = room.removeBot(msg.botId);
+      if (!result.success) {
+        ws.send(JSON.stringify({ type: 'error', message: result.error }));
+        return;
+      }
+      room.broadcast({ type: 'bot_removed', ...room.getState() });
+      break;
+    }
+
     case 'game_action': {
       const room = rooms.get(ws.roomCode);
       if (!room || !room.game) return;

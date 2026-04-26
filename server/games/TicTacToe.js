@@ -57,6 +57,8 @@ class TicTacToe {
       gameType: 'tictactoe',
       ...this.getFullState(),
     });
+
+    this.maybeTriggerBot();
   }
 
   currentPlayerId() {
@@ -110,6 +112,8 @@ class TicTacToe {
         wins: this.wins,
       });
       if (this.onEnd) this.onEnd();
+    } else {
+      this.maybeTriggerBot();
     }
 
     return { success: true };
@@ -120,6 +124,55 @@ class TicTacToe {
       if (line.every((i) => this.board[i] === mark)) return line;
     }
     return null;
+  }
+
+  // ── Bot ──────────────────────────────────────────────────────────
+  // Smart-but-beatable: take a winning move, block an opponent
+  // winning move, prefer center, then a random corner, then
+  // anything else. No deep lookahead, so it can be set up with
+  // forks — feels chill rather than impossible.
+
+  maybeTriggerBot() {
+    const currentId = this.currentPlayerId();
+    const current = this.players.find((p) => p.id === currentId);
+    if (!current || !current.isBot || this.status !== 'playing') return;
+    if (this.botTimer) clearTimeout(this.botTimer);
+    this.botTimer = setTimeout(() => {
+      this.botTimer = null;
+      if (this.status !== 'playing') return;
+      const cell = this.botPickCell(currentId);
+      if (cell !== -1) this.handleAction(currentId, { kind: 'place', cell });
+    }, 750);
+  }
+
+  botPickCell(botId) {
+    const myMark = this.marks[botId];
+    const oppMark = myMark === 'X' ? 'O' : 'X';
+    const empties = [];
+    for (let i = 0; i < 9; i++) if (this.board[i] === null) empties.push(i);
+    if (empties.length === 0) return -1;
+
+    // 1. Win this turn.
+    for (const i of empties) {
+      this.board[i] = myMark;
+      const wins = !!this.findWinLine(myMark);
+      this.board[i] = null;
+      if (wins) return i;
+    }
+    // 2. Block opponent's winning move.
+    for (const i of empties) {
+      this.board[i] = oppMark;
+      const wins = !!this.findWinLine(oppMark);
+      this.board[i] = null;
+      if (wins) return i;
+    }
+    // 3. Center.
+    if (this.board[4] === null) return 4;
+    // 4. A random open corner.
+    const corners = [0, 2, 6, 8].filter((i) => this.board[i] === null);
+    if (corners.length) return corners[Math.floor(Math.random() * corners.length)];
+    // 5. Anything else.
+    return empties[Math.floor(Math.random() * empties.length)];
   }
 
   getFullState() {
@@ -137,8 +190,10 @@ class TicTacToe {
   }
 
   destroy() {
-    // No timers/intervals to clean up; method exists for the Room
-    // contract so future games (timed turns, etc.) can hook in.
+    if (this.botTimer) {
+      clearTimeout(this.botTimer);
+      this.botTimer = null;
+    }
   }
 }
 

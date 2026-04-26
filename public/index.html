@@ -19,17 +19,17 @@
 <body>
   <div id="app">
 
-    <!-- Landing -->
+    <!-- Landing — name + game tiles + join, all on one screen -->
     <section id="landing-screen" class="screen active">
       <a href="/" class="btn-home" aria-label="Back to platformvv hub">&larr; Hub</a>
       <div class="container container-narrow">
         <h1 class="title">LEVEL 0</h1>
-        <p class="subtitle">Simple games for hanging out.</p>
 
         <div class="form">
           <input type="text" id="player-name" class="input" placeholder="Your name" maxlength="16" autocomplete="off" spellcheck="false">
 
-          <button id="create-btn" class="btn btn-primary">Create Game</button>
+          <p class="form-label">Pick a game</p>
+          <div id="picker-list" class="picker-list"></div>
 
           <div class="divider"><span>or join</span></div>
 
@@ -38,15 +38,6 @@
             <button id="join-btn" class="btn btn-secondary">Join</button>
           </div>
         </div>
-      </div>
-    </section>
-
-    <!-- Game picker -->
-    <section id="picker-screen" class="screen">
-      <button id="picker-back-btn" class="btn-home">&larr; Back</button>
-      <div class="container">
-        <h2 class="screen-title">Pick a game</h2>
-        <div id="picker-list" class="picker-list"></div>
       </div>
     </section>
 
@@ -74,6 +65,7 @@
         </div>
 
         <div class="room-actions">
+          <button id="add-bot-btn" class="btn btn-secondary hidden">Add Bot</button>
           <button id="start-btn" class="btn btn-primary hidden">Start Game</button>
           <p id="waiting-msg" class="waiting-msg">Waiting for host…</p>
         </div>

@@ -2,6 +2,7 @@ const Player = require('./Player');
 const { GAMES } = require('./games');
 
 const SPECTATOR_LIMIT = 20;
+const BOT_NAMES = ['Atlas', 'Echo', 'Nova', 'Sage', 'Pixel', 'Onyx'];
 
 class Room {
   constructor(code, gameType) {
@@ -61,6 +62,27 @@ class Room {
       return { success: false, error: 'Spectator limit reached' };
     }
     this.occupants.set(spectatorId, new Player(spectatorId, name, ws, 'spectator'));
+    return { success: true };
+  }
+
+  addBot() {
+    if (!this.canSeatPlayer()) {
+      return { success: false, error: 'Room is full or game already started' };
+    }
+    // Pick the first bot name that isn't already at the table.
+    const taken = new Set(this.players().map((p) => p.name));
+    const name = BOT_NAMES.find((n) => !taken.has(n)) || `Bot ${this.players().length}`;
+    let id;
+    do { id = `bot_${Math.random().toString(36).slice(2, 10)}`; } while (this.occupants.has(id));
+    this.occupants.set(id, new Player(id, name, null, 'player', true));
+    return { success: true, botId: id };
+  }
+
+  removeBot(botId) {
+    const occ = this.occupants.get(botId);
+    if (!occ || !occ.isBot) return { success: false, error: 'Not a bot' };
+    if (this.state !== 'lobby') return { success: false, error: 'Game already started' };
+    this.occupants.delete(botId);
     return { success: true };
   }
 
@@ -131,8 +153,10 @@ class Room {
 
   isEmpty() {
     if (this.occupants.size === 0) return true;
+    // A room with only bots (or only disconnected humans) is "empty"
+    // for cleanup purposes — bots don't count as keeping a room alive.
     for (const occ of this.occupants.values()) {
-      if (occ.connected) return false;
+      if (occ.connected && !occ.isBot) return false;
     }
     return true;
   }
@@ -148,10 +172,18 @@ class Room {
       return { success: false, error: `Need at least ${this.gameMeta.minPlayers} players` };
     }
     const GameClass = this.gameMeta.GameClass;
-    this.game = new GameClass(players, this.broadcast.bind(this), () => this.onGameEnd());
+    // Pass a wrapped broadcast so every game-emitted message carries the
+    // current room state (roomCode, hostId, players, roomState, etc).
+    // Without this the client wouldn't know to flip from lobby → game,
+    // since the game class only knows about its own state.
+    this.game = new GameClass(players, this.broadcastWithRoomState.bind(this), () => this.onGameEnd());
     this.state = 'playing';
     this.game.start();
     return { success: true };
+  }
+
+  broadcastWithRoomState(msg) {
+    this.broadcast({ ...this.getState(), ...msg });
   }
 
   playAgain() {
