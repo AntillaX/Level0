@@ -17,15 +17,20 @@ const WIN_LINES = [
 ];
 
 class TicTacToe {
-  constructor(players, broadcast, onEnd) {
+  constructor(players, broadcast, onEnd, opts = {}) {
     this.players = players;
     this.broadcast = broadcast;
     this.onEnd = onEnd;
 
     this.order = players.map((p) => p.id);
     this.marks = {};
+    // Carry a running win tally across replays in the same room.
+    // The Room owns the canonical map (this.persistentWins) and
+    // hands it to each new Game instance so Play Again doesn't
+    // reset the scoreboard.
+    const prevWins = opts.wins || {};
     this.wins = {};
-    for (const p of players) this.wins[p.id] = 0;
+    for (const p of players) this.wins[p.id] = prevWins[p.id] || 0;
 
     this.board = Array(9).fill(null);
     this.currentIdx = 0;

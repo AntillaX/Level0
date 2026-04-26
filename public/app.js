@@ -446,40 +446,52 @@ function renderTicTacToe(stage, r) {
     board.appendChild(cell);
   }
 
-  if (winLine) board.appendChild(buildWinLineSvg(winLine));
+  if (winLine) board.appendChild(buildWinLineSvg(winLine, board));
 
   stage.appendChild(board);
 }
 
-// Coordinate space matches the 3×3 grid: (col, row), each in 0..3.
-// Cell N has col = N % 3, row = floor(N / 3); center is +0.5.
-function buildWinLineSvg(line) {
+// Renders a winning-line SVG sized to the board's actual pixel
+// dimensions. Coordinates are read via getBoundingClientRect so the
+// line lands exactly on cell centers regardless of board size, gap,
+// or padding — the previous "0..3 unit" coordinate space ignored
+// the board padding/gap and produced a too-short, off-center line
+// on wider viewports. We measure inside a rAF so the cells are
+// guaranteed to be laid out.
+function buildWinLineSvg(line, board) {
   const NS = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(NS, 'svg');
   svg.setAttribute('class', 'ttt-winline');
-  svg.setAttribute('viewBox', '0 0 3 3');
   svg.setAttribute('preserveAspectRatio', 'none');
 
-  const [a, , c] = line;
-  const x1 = (a % 3) + 0.5, y1 = Math.floor(a / 3) + 0.5;
-  const x2 = (c % 3) + 0.5, y2 = Math.floor(c / 3) + 0.5;
-  const len = Math.hypot(x2 - x1, y2 - y1);
+  const lineEl = document.createElementNS(NS, 'line');
+  lineEl.setAttribute('class', 'ttt-winline-stroke');
+  svg.appendChild(lineEl);
 
-  // Inset each end slightly so the line doesn't poke out of the cells.
-  const inset = 0.15;
-  const dx = (x2 - x1) / len, dy = (y2 - y1) / len;
-  const sx = x1 + dx * inset, sy = y1 + dy * inset;
-  const ex = x2 - dx * inset, ey = y2 - dy * inset;
-  const drawLen = Math.hypot(ex - sx, ey - sy);
+  requestAnimationFrame(() => {
+    const cells = board.querySelectorAll('.ttt-cell');
+    if (cells.length !== 9) return;
+    const boardRect = board.getBoundingClientRect();
+    const c1 = cells[line[0]].getBoundingClientRect();
+    const c2 = cells[line[2]].getBoundingClientRect();
 
-  const path = document.createElementNS(NS, 'line');
-  path.setAttribute('class', 'ttt-winline-stroke');
-  path.setAttribute('x1', sx);
-  path.setAttribute('y1', sy);
-  path.setAttribute('x2', ex);
-  path.setAttribute('y2', ey);
-  path.style.setProperty('--len', drawLen);
-  svg.appendChild(path);
+    const x1 = c1.left + c1.width  / 2 - boardRect.left;
+    const y1 = c1.top  + c1.height / 2 - boardRect.top;
+    const x2 = c2.left + c2.width  / 2 - boardRect.left;
+    const y2 = c2.top  + c2.height / 2 - boardRect.top;
+
+    svg.setAttribute('viewBox', `0 0 ${boardRect.width} ${boardRect.height}`);
+
+    lineEl.setAttribute('x1', x1);
+    lineEl.setAttribute('y1', y1);
+    lineEl.setAttribute('x2', x2);
+    lineEl.setAttribute('y2', y2);
+    lineEl.style.strokeWidth = Math.max(7, boardRect.width * 0.022) + 'px';
+
+    const len = Math.hypot(x2 - x1, y2 - y1);
+    lineEl.style.setProperty('--len', len);
+  });
+
   return svg;
 }
 

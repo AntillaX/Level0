@@ -13,6 +13,10 @@ class Room {
     this.hostId = null;
     this.game = null;
     this.state = 'lobby'; // 'lobby' | 'playing' | 'finished'
+    // Tally of wins across multiple rounds in the same room. Each
+    // call to playAgain() spins up a new Game instance, so this
+    // lives at the room level so the running score survives.
+    this.persistentWins = {};
   }
 
   // ── helpers ──────────────────────────────────────────────────────
@@ -176,7 +180,12 @@ class Room {
     // current room state (roomCode, hostId, players, roomState, etc).
     // Without this the client wouldn't know to flip from lobby → game,
     // since the game class only knows about its own state.
-    this.game = new GameClass(players, this.broadcastWithRoomState.bind(this), () => this.onGameEnd());
+    this.game = new GameClass(
+      players,
+      this.broadcastWithRoomState.bind(this),
+      () => this.onGameEnd(),
+      { wins: this.persistentWins },
+    );
     this.state = 'playing';
     this.game.start();
     return { success: true };
@@ -197,6 +206,10 @@ class Room {
 
   onGameEnd() {
     this.state = 'finished';
+    // Snapshot the running tally so the next round starts with it.
+    if (this.game && this.game.wins) {
+      this.persistentWins = { ...this.game.wins };
+    }
   }
 
   // ── messaging ────────────────────────────────────────────────────
