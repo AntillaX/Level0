@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0a0a">
+  <title>Level 0 &middot; PLATFORMVV</title>
+  <link rel="stylesheet" href="style.css">
+
+  <!-- Shared GA4 across the platformvv site. -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-S648R7WPGJ"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-S648R7WPGJ', { send_page_view: false });
+  </script>
+</head>
+<body>
+  <div id="app">
+
+    <!-- Landing -->
+    <section id="landing-screen" class="screen active">
+      <a href="/" class="btn-home" aria-label="Back to platformvv hub">&larr; Hub</a>
+      <div class="container container-narrow">
+        <h1 class="title">LEVEL 0</h1>
+        <p class="subtitle">Simple games for hanging out.</p>
+
+        <div class="form">
+          <input type="text" id="player-name" class="input" placeholder="Your name" maxlength="16" autocomplete="off" spellcheck="false">
+
+          <button id="create-btn" class="btn btn-primary">Create Game</button>
+
+          <div class="divider"><span>or join</span></div>
+
+          <div class="join-row">
+            <input type="text" id="room-code-input" class="input input-code" placeholder="CODE" maxlength="4" autocomplete="off" spellcheck="false">
+            <button id="join-btn" class="btn btn-secondary">Join</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Game picker -->
+    <section id="picker-screen" class="screen">
+      <button id="picker-back-btn" class="btn-home">&larr; Back</button>
+      <div class="container">
+        <h2 class="screen-title">Pick a game</h2>
+        <div id="picker-list" class="picker-list"></div>
+      </div>
+    </section>
+
+    <!-- Room / lobby -->
+    <section id="room-screen" class="screen">
+      <button id="room-leave-btn" class="btn-home">&larr; Leave</button>
+      <div class="container container-narrow">
+        <p class="eyebrow" id="room-game-name">Tic-Tac-Toe</p>
+        <h2 class="screen-title">Room</h2>
+        <div class="room-code-row">
+          <span id="room-code" class="room-code"></span>
+          <button id="room-copy-btn" class="btn-ghost" aria-label="Copy room code">Copy</button>
+        </div>
+        <p class="hint" id="room-hint">Share the code with a friend.</p>
+
+        <div class="people">
+          <div class="people-section">
+            <p class="people-label">Players <span id="players-count" class="people-count"></span></p>
+            <ul id="players-list" class="people-list"></ul>
+          </div>
+          <div class="people-section" id="spectators-section" hidden>
+            <p class="people-label">Spectators <span id="spectators-count" class="people-count"></span></p>
+            <ul id="spectators-list" class="people-list"></ul>
+          </div>
+        </div>
+
+        <div class="room-actions">
+          <button id="start-btn" class="btn btn-primary hidden">Start Game</button>
+          <p id="waiting-msg" class="waiting-msg">Waiting for host…</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Game (game-specific view rendered into #game-stage) -->
+    <section id="game-screen" class="screen">
+      <button id="game-leave-btn" class="btn-home">&larr; Leave</button>
+      <div class="container">
+        <header class="game-header">
+          <p class="eyebrow" id="game-name-label">Tic-Tac-Toe</p>
+          <p id="turn-banner" class="turn-banner">…</p>
+        </header>
+        <div id="game-stage" class="game-stage"></div>
+        <div class="scoreboard" id="scoreboard"></div>
+      </div>
+    </section>
+
+    <!-- Game over -->
+    <section id="gameover-screen" class="screen">
+      <button id="gameover-leave-btn" class="btn-home">&larr; Leave</button>
+      <div class="container container-narrow">
+        <p class="eyebrow" id="gameover-game-name">Tic-Tac-Toe</p>
+        <h2 id="gameover-title" class="screen-title gameover-title">Winner</h2>
+        <p id="gameover-sub" class="hint"></p>
+        <div id="gameover-scores" class="scoreboard"></div>
+        <div class="room-actions">
+          <button id="play-again-btn" class="btn btn-primary hidden">Play Again</button>
+          <p id="play-again-waiting" class="waiting-msg hidden">Waiting for host…</p>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+  <!-- Reconnecting overlay -->
+  <div id="reconnect-overlay" class="overlay hidden" aria-hidden="true">
+    <div class="overlay-card">
+      <div class="spinner"></div>
+      <p>Reconnecting…</p>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

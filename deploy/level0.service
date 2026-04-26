@@ -1,0 +1,17 @@
+[Unit]
+Description=Level 0 Game Server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/level0
+Environment=NODE_ENV=production
+Environment=PORT=3200
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
