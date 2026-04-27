@@ -490,9 +490,10 @@ function renderTicTacToe(stage, r) {
 
 /* ─── Render: Four in a Row ────────────────────────────────────── */
 
-// 7 columns × 6 rows. The DOM is column-major: each column is a
-// <button> spanning 6 cells so a click anywhere in the column
-// drops a token into that column.
+// 7 columns × 6 rows. Flat 7×6 grid in row-major order — each cell
+// is its own clickable target and the column-hover effect is wired
+// up in JS via mouseover (CSS :has() works but isn't universally
+// supported on older mobile browsers).
 function renderFourInARow(stage, r) {
   const cols = r.cols || 7;
   const rows = r.rows || 6;
@@ -518,30 +519,30 @@ function renderFourInARow(stage, r) {
   board.className = 'fr-board';
   board.style.setProperty('--fr-cols', cols);
   board.style.setProperty('--fr-rows', rows);
+  // Color hint for the hover-preview disc (per-column ::before).
+  if (myMark) board.classList.add(myMark === 'A' ? 'is-color-a' : 'is-color-b');
 
   const winSet = new Set((r.result && r.result.kind === 'win' && r.result.line) || []);
   const last = r.lastMove;
 
-  for (let c = 0; c < cols; c++) {
-    const col = document.createElement('button');
-    col.type = 'button';
-    col.className = 'fr-col';
-    col.setAttribute('aria-label', `Column ${c + 1}`);
+  // Track which columns are full so we can disable hover/click on them.
+  const colFull = [];
+  for (let c = 0; c < cols; c++) colFull[c] = topRow(r.board, c, rows, cols) === -1;
 
-    const colFull = topRow(r.board, c, rows, cols) === -1;
-    const canPlay = !colFull && isMyTurn;
-    col.disabled = !canPlay;
-    if (canPlay) {
-      col.classList.add('is-clickable');
-      // Tag the column with the local player's color so the hover
-      // preview disc renders in their token color, not a generic accent.
-      if (myMark) col.classList.add(myMark === 'A' ? 'is-color-a' : 'is-color-b');
-    }
-
-    for (let row = 0; row < rows; row++) {
+  // Cells in row-major order (top row first). Each cell carries its
+  // column index so click handlers can route the drop to the right
+  // column without needing a wrapping <button>.
+  for (let row = 0; row < rows; row++) {
+    for (let c = 0; c < cols; c++) {
       const idx = row * cols + c;
       const cell = document.createElement('div');
       cell.className = 'fr-cell';
+      cell.dataset.col = String(c);
+      const canPlayCol = !colFull[c] && isMyTurn;
+      if (canPlayCol) cell.classList.add('is-clickable');
+      cell.setAttribute('role', 'button');
+      cell.setAttribute('aria-label', `Column ${c + 1}`);
+
       const val = (r.board || [])[idx];
       if (val) {
         const token = document.createElement('div');
@@ -549,20 +550,45 @@ function renderFourInARow(stage, r) {
         if (winSet.has(idx)) token.classList.add('is-winning');
         if (last && last.cell === idx) {
           token.classList.add('is-falling');
-          // Distance to fall: row+1 cells (so a token landing on
-          // the bottom row falls the full height).
           token.style.setProperty('--fall-rows', row + 1);
         }
         cell.appendChild(token);
       }
-      col.appendChild(cell);
-    }
 
-    col.addEventListener('click', () => {
-      if (!canPlay) return;
-      send({ type: 'game_action', action: { kind: 'drop', col: c } });
+      if (canPlayCol) {
+        cell.addEventListener('click', () => {
+          send({ type: 'game_action', action: { kind: 'drop', col: c } });
+        });
+      }
+      board.appendChild(cell);
+    }
+  }
+
+  // JS-driven column hover: on mouseover any cell, mark all cells in
+  // the same column with .is-col-hover so we can light up the column
+  // and float a preview disc above it.
+  if (isMyTurn) {
+    const setHover = (col) => {
+      for (const el of board.querySelectorAll('.fr-cell.is-col-hover')) {
+        el.classList.remove('is-col-hover');
+      }
+      board.removeAttribute('data-hover-col');
+      board.style.removeProperty('--hover-col');
+      if (col != null && !colFull[col]) {
+        for (const el of board.querySelectorAll(`.fr-cell[data-col="${col}"]`)) {
+          el.classList.add('is-col-hover');
+        }
+        board.dataset.hoverCol = String(col);
+        // Used by the .fr-board::before preview disc to track the
+        // hovered column (CSS calc reads --hover-col).
+        board.style.setProperty('--hover-col', String(col));
+      }
+    };
+    board.addEventListener('mouseover', (e) => {
+      const cell = e.target.closest('.fr-cell');
+      setHover(cell ? Number(cell.dataset.col) : null);
     });
-    board.appendChild(col);
+    board.addEventListener('mouseleave', () => setHover(null));
   }
 
   stage.appendChild(board);

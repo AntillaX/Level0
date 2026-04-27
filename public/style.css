@@ -626,80 +626,41 @@ body {
 .is-color-a { color: var(--fr-color-a); }
 .is-color-b { color: var(--fr-color-b); }
 
-/* Board: 7 columns × 6 rows. The board is column-major in the DOM
-   (each .fr-col is a button containing 6 .fr-cell children), which
-   makes the entire column a single click target — drop-anywhere
-   behaviour without per-cell wiring. The 7:6 aspect-ratio keeps
-   the board proportional on every screen size. The explicit
-   grid-template-rows: 1fr is what makes the column buttons fill
-   the board's height — without it, the implicit row sizes to its
-   (zero-content-height) cells and the board becomes an empty box. */
+/* Board: a flat 7×6 grid in row-major order. The previous version
+   used a nested column-major grid (.fr-col > .fr-cell × 6), which
+   collapsed because the implicit single row sized itself to the
+   (zero-content-height) buttons. Going flat eliminates the row-
+   sizing puzzle entirely — each cell is a real grid item with
+   its own row track from grid-template-rows: repeat(6, 1fr).
+
+   Aspect-ratio 7:6 + width clamp keeps the board proportional and
+   centred on every screen size. The panel uses a warm, gold-tinted
+   surface (vs the page's near-black) so the dark sockets pop —
+   mirroring the strong contrast you'd see on a physical board. */
 .fr-board {
   --fr-cols: 7;
   --fr-rows: 6;
+  position: relative;
   display: grid;
   grid-template-columns: repeat(var(--fr-cols), 1fr);
-  grid-template-rows: 1fr;
-  gap: 0.35rem;
+  grid-template-rows: repeat(var(--fr-rows), 1fr);
+  gap: 0.45rem;
   width: min(92vw, 480px);
   aspect-ratio: 7 / 6;
-  padding: 0.55rem;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01));
-  border: 1px solid var(--border);
+  padding: 0.7rem;
+  background:
+    linear-gradient(180deg, #2a2418 0%, #1d1a13 100%);
+  border: 1px solid rgba(212, 168, 67, 0.18);
   border-radius: var(--radius-xl);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
-}
-.fr-col {
-  display: grid;
-  grid-template-rows: repeat(var(--fr-rows), 1fr);
-  gap: 0.35rem;
-  padding: 0;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  cursor: pointer;
-  font-family: inherit;
-  transition: background var(--t-fast), border-color var(--t-fast);
-  min-width: 0;
-  min-height: 0;
-  height: 100%;
-  position: relative;
-}
-.fr-col:disabled { cursor: default; }
-.fr-col.is-clickable:hover,
-.fr-col.is-clickable:focus-visible {
-  background: rgba(212, 168, 67, 0.06);
-  border-color: rgba(212, 168, 67, 0.35);
-  outline: none;
-}
-/* Floating preview disc at the top of the hovered column showing
-   the player's color — a visual cue for "this is where it'll land".
-   Color is set per-column via .is-color-a / .is-color-b on the
-   button itself (added in renderFourInARow when it's the local
-   player's turn). */
-.fr-col.is-clickable::before {
-  content: "";
-  position: absolute;
-  top: -0.5rem;
-  left: 50%;
-  width: 0.6rem;
-  height: 0.6rem;
-  border-radius: 50%;
-  background: var(--fr-color-a);
-  opacity: 0;
-  transform: translate(-50%, -4px);
-  transition: opacity var(--t-fast), transform var(--t-fast);
-  pointer-events: none;
-}
-.fr-col.is-clickable.is-color-b::before { background: var(--fr-color-b); }
-.fr-col.is-clickable:hover::before,
-.fr-col.is-clickable:focus-visible::before {
-  opacity: 0.85;
-  transform: translate(-50%, 0);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.4),
+    0 4px 18px rgba(0, 0, 0, 0.45);
 }
 
 .fr-cell {
-  background: rgba(0, 0, 0, 0.55);
+  position: relative;
+  background: #050505;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -707,11 +668,50 @@ body {
   overflow: hidden;
   min-width: 0;
   min-height: 0;
-  /* Soft inset to make the holes look like physical sockets. */
+  cursor: default;
+  /* Hard inset shadow so each socket reads as a drilled hole in
+     the panel rather than a flat circle. */
   box-shadow:
-    inset 0 2px 4px rgba(0, 0, 0, 0.6),
+    inset 0 3px 5px rgba(0, 0, 0, 0.85),
     inset 0 -1px 1px rgba(255, 255, 255, 0.04);
+  transition: background var(--t-fast);
 }
+.fr-cell.is-clickable { cursor: pointer; }
+/* Column hover (driven by JS). All cells in the hovered column get
+   .is-col-hover; we lift them subtly and add a faint accent tint so
+   the column reads as the active drop target. */
+.fr-cell.is-col-hover {
+  background: #0a0805;
+  box-shadow:
+    inset 0 3px 5px rgba(0, 0, 0, 0.85),
+    inset 0 0 0 2px rgba(212, 168, 67, 0.18);
+}
+
+/* Floating preview disc above the hovered column, in the local
+   player's color. Position is set in JS via --hover-col so the disc
+   tracks the column. */
+.fr-board::before {
+  content: "";
+  position: absolute;
+  top: -0.7rem;
+  width: calc((100% - 1.4rem - 0.45rem * (var(--fr-cols) - 1)) / var(--fr-cols) * 0.7);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--fr-color-a);
+  opacity: 0;
+  transition: opacity var(--t-fast), left var(--t-fast);
+  pointer-events: none;
+  /* Centre-x of the hovered column track. */
+  left: calc(
+    0.7rem +
+    (var(--hover-col, 0) + 0.5) *
+    ((100% - 1.4rem - 0.45rem * (var(--fr-cols) - 1)) / var(--fr-cols)) +
+    var(--hover-col, 0) * 0.45rem
+  );
+  transform: translateX(-50%);
+}
+.fr-board[data-hover-col]::before { opacity: 0.85; }
+.fr-board.is-color-b::before { background: var(--fr-color-b); }
 .fr-token {
   width: 86%;
   height: 86%;
