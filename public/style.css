@@ -611,6 +611,122 @@ body {
   to   { transform: scale(1);   opacity: 1; }
 }
 
+/* ─── Four in a Row ─────────────────────────────────────────────── */
+
+/* Two distinct token colors: gold (player A, the existing accent)
+   and a warm rust (player B). Both share the same chill palette
+   the rest of the site uses. */
+:root {
+  --fr-color-a: var(--accent);
+  --fr-color-a-glow: rgba(212, 168, 67, 0.45);
+  --fr-color-b: #c87a6a;
+  --fr-color-b-glow: rgba(200, 122, 106, 0.5);
+}
+
+.is-color-a { color: var(--fr-color-a); }
+.is-color-b { color: var(--fr-color-b); }
+
+/* Board: 7 columns × 6 rows. The board is column-major in the DOM
+   (each .fr-col is a button containing 6 .fr-cell children), which
+   makes the entire column a single click target — drop-anywhere
+   behaviour without per-cell wiring. The 7:6 aspect-ratio keeps
+   the board proportional on every screen size. */
+.fr-board {
+  --fr-cols: 7;
+  --fr-rows: 6;
+  display: grid;
+  grid-template-columns: repeat(var(--fr-cols), 1fr);
+  gap: 0.35rem;
+  width: min(92vw, 480px);
+  aspect-ratio: 7 / 6;
+  padding: 0.55rem;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+}
+.fr-col {
+  display: grid;
+  grid-template-rows: repeat(var(--fr-rows), 1fr);
+  gap: 0.35rem;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-family: inherit;
+  transition: background var(--t-fast), border-color var(--t-fast);
+  min-width: 0;
+  min-height: 0;
+}
+.fr-col:disabled { cursor: default; }
+.fr-col.is-clickable:hover,
+.fr-col.is-clickable:focus-visible {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(212, 168, 67, 0.35);
+  outline: none;
+}
+.fr-cell {
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+}
+.fr-token {
+  width: 86%;
+  height: 86%;
+  border-radius: 50%;
+  background: var(--fr-color-a);
+  box-shadow:
+    inset 0 -3px 6px rgba(0, 0, 0, 0.25),
+    inset 0 3px 4px rgba(255, 255, 255, 0.18);
+}
+.fr-token.is-color-a { background: var(--fr-color-a); }
+.fr-token.is-color-b { background: var(--fr-color-b); }
+
+/* Newly-dropped token falls from above. The fall distance is the
+   landing row + 1 (in cell heights) — passed in as --fall-rows.
+   100% / var(--fr-rows) approximates a single cell's vertical
+   stride within the column grid. */
+.fr-token.is-falling {
+  animation: fr-fall 0.36s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+@keyframes fr-fall {
+  from { transform: translateY(calc(-100% * var(--fall-rows, 6) - 30%)); opacity: 0.85; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+/* Highlight winning tokens with the accent glow (regardless of
+   which colour formed the run — both pop). */
+.fr-token.is-winning {
+  box-shadow:
+    inset 0 -3px 6px rgba(0, 0, 0, 0.25),
+    inset 0 3px 4px rgba(255, 255, 255, 0.22),
+    0 0 16px 2px var(--accent-glow);
+  animation: fr-winglow 1s ease-out infinite alternate;
+}
+@keyframes fr-winglow {
+  from { filter: brightness(1); }
+  to   { filter: brightness(1.18); }
+}
+
+/* Score-card disc — a small filled circle in the player's color.
+   Replaces the plain X/O letter the TTT scoreboard uses. */
+.score-card-mark.fr-disc {
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  border-radius: 50%;
+  vertical-align: -2px;
+  margin-right: 0.45rem;
+  background: var(--fr-color-a);
+}
+.score-card-mark.fr-disc.is-color-a { background: var(--fr-color-a); }
+.score-card-mark.fr-disc.is-color-b { background: var(--fr-color-b); }
+
 /* ─── Scoreboard ────────────────────────────────────────────────── */
 
 .scoreboard {

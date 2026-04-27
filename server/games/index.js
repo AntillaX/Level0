@@ -1,4 +1,5 @@
 const TicTacToe = require('./TicTacToe');
+const FourInARow = require('./FourInARow');
 
 // Registry of game types. `available: false` keeps a tile visible in
 // the picker but disabled — useful for "coming soon" before we ship a
@@ -20,8 +21,8 @@ const GAMES = {
     tagline: 'Drop, stack, connect four.',
     minPlayers: 2,
     maxPlayers: 2,
-    available: false,
-    GameClass: null,
+    available: true,
+    GameClass: FourInARow,
   },
 };
 

@@ -278,7 +278,7 @@ function mergeRoomState(msg) {
     'roomCode', 'gameType', 'gameName', 'hostId', 'roomState',
     'minPlayers', 'maxPlayers', 'players', 'spectators',
     'board', 'marks', 'order', 'currentTurn', 'status', 'result', 'wins',
-    'moveCount',
+    'moveCount', 'cols', 'rows', 'lastMove',
   ];
   for (const k of keys) {
     if (msg[k] !== undefined) state.room[k] = msg[k];
@@ -412,6 +412,7 @@ function renderPerson(person, room) {
 
 const GAME_RENDERERS = {
   tictactoe: renderTicTacToe,
+  fourinarow: renderFourInARow,
 };
 
 function renderGame() {
@@ -487,6 +488,97 @@ function renderTicTacToe(stage, r) {
   stage.appendChild(board);
 }
 
+/* ─── Render: Four in a Row ────────────────────────────────────── */
+
+// 7 columns × 6 rows. The DOM is column-major: each column is a
+// <button> spanning 6 cells so a click anywhere in the column
+// drops a token into that column.
+function renderFourInARow(stage, r) {
+  const cols = r.cols || 7;
+  const rows = r.rows || 6;
+  const myMark = r.marks && r.marks[state.playerId];
+  const isMyTurn = state.role === 'player' && r.currentTurn === state.playerId && r.status === 'playing';
+
+  const banner = $('turn-banner');
+  if (r.status === 'finished') {
+    banner.textContent = '';
+  } else if (isMyTurn) {
+    banner.innerHTML = `Your turn — <span class="${markClass(myMark)}">●</span>`;
+  } else {
+    const turnPlayer = (r.players || []).find((p) => p.id === r.currentTurn);
+    const turnMark = r.marks && r.marks[r.currentTurn];
+    if (turnPlayer) {
+      banner.innerHTML = `<span class="accent">${turnPlayer.name}</span> &middot; <span class="${markClass(turnMark)}">●</span>`;
+    } else {
+      banner.textContent = '…';
+    }
+  }
+
+  const board = document.createElement('div');
+  board.className = 'fr-board';
+  board.style.setProperty('--fr-cols', cols);
+  board.style.setProperty('--fr-rows', rows);
+
+  const winSet = new Set((r.result && r.result.kind === 'win' && r.result.line) || []);
+  const last = r.lastMove;
+
+  for (let c = 0; c < cols; c++) {
+    const col = document.createElement('button');
+    col.type = 'button';
+    col.className = 'fr-col';
+    col.setAttribute('aria-label', `Column ${c + 1}`);
+
+    const colFull = topRow(r.board, c, rows, cols) === -1;
+    const canPlay = !colFull && isMyTurn;
+    col.disabled = !canPlay;
+    if (canPlay) col.classList.add('is-clickable');
+
+    for (let row = 0; row < rows; row++) {
+      const idx = row * cols + c;
+      const cell = document.createElement('div');
+      cell.className = 'fr-cell';
+      const val = (r.board || [])[idx];
+      if (val) {
+        const token = document.createElement('div');
+        token.className = `fr-token ${val === 'A' ? 'is-color-a' : 'is-color-b'}`;
+        if (winSet.has(idx)) token.classList.add('is-winning');
+        if (last && last.cell === idx) {
+          token.classList.add('is-falling');
+          // Distance to fall: row+1 cells (so a token landing on
+          // the bottom row falls the full height).
+          token.style.setProperty('--fall-rows', row + 1);
+        }
+        cell.appendChild(token);
+      }
+      col.appendChild(cell);
+    }
+
+    col.addEventListener('click', () => {
+      if (!canPlay) return;
+      send({ type: 'game_action', action: { kind: 'drop', col: c } });
+    });
+    board.appendChild(col);
+  }
+
+  stage.appendChild(board);
+}
+
+function topRow(board, col, rows, cols) {
+  for (let row = rows - 1; row >= 0; row--) {
+    if ((board || [])[row * cols + col] === null || (board || [])[row * cols + col] === undefined) return row;
+  }
+  return -1;
+}
+
+// Map a per-game mark value to a CSS color class for in-game UI.
+// TTT marks are 'X' / 'O' — uses .accent. FIAR marks are 'A' / 'B' —
+// rendered as colored discs.
+function markClass(m) {
+  if (m === 'A') return 'is-color-a';
+  if (m === 'B') return 'is-color-b';
+  return 'accent';
+}
+
 // Renders a winning-line SVG sized to the board's actual pixel
 // dimensions. Coordinates are read via getBoundingClientRect so the
 // line lands exactly on cell centers regardless of board size, gap,
@@ -552,7 +644,14 @@ function renderScoreboard(el, r) {
     const wins = document.createElement('span');
     wins.className = 'score-card-wins';
     const mark = (r.marks && r.marks[p.id]) || '';
-    wins.innerHTML = `<span class="score-card-mark">${mark}</span>${(r.wins && r.wins[p.id]) || 0}`;
+    // Four in a Row: render the mark as a colored disc instead of
+    // the bare letter, since 'A' / 'B' don't carry meaning to the
+    // player — the colors do.
+    const isFR = r.gameType === 'fourinarow';
+    const markEl = isFR
+      ? `<span class="score-card-mark fr-disc ${markClass(mark)}"></span>`
+      : `<span class="score-card-mark">${mark}</span>`;
+    wins.innerHTML = `${markEl}${(r.wins && r.wins[p.id]) || 0}`;
     card.appendChild(wins);
 
     el.appendChild(card);
