@@ -18,6 +18,10 @@ const state = {
   // Catalog
   games: [],
   pickerLoaded: false,
+
+  // Last known wins map so we can detect changes and pulse the
+  // score card belonging to whoever just won.
+  lastWins: null,
 };
 
 const SCREENS = ['landing', 'room', 'game', 'gameover'];
@@ -154,6 +158,13 @@ function handleServerMessage(msg) {
       state.role = msg.role || (msg.type === 'spectator_joined' ? 'spectator' : 'player');
       state.room = msg;
       saveSession();
+      // Auto-spectator: if the user tapped Join but the room was full
+      // or already started, the server quietly seats them as a
+      // spectator. Surface that with a toast so they know they aren't
+      // playing this round.
+      if (msg.type === 'spectator_joined') {
+        toast('Game in progress — joined as spectator');
+      }
       renderForState();
       break;
     }
@@ -167,6 +178,31 @@ function handleServerMessage(msg) {
     case 'bot_added':
     case 'bot_removed': {
       mergeRoomState(msg);
+      renderForState();
+      break;
+    }
+
+    case 'host_changed': {
+      // The previous host left and someone else inherited the role.
+      // Toast only the *new* host so they realise they have controls now.
+      mergeRoomState(msg);
+      if (msg.hostId === state.playerId) {
+        toast("You're the host now");
+      }
+      renderForState();
+      break;
+    }
+
+    case 'round_abandoned': {
+      // A seated player left mid-game. Server has already cleared
+      // the game and flipped the room back to 'lobby'. We toast the
+      // survivors so they know why the screen changed.
+      mergeRoomState(msg);
+      const wasMe = msg.leftId === state.playerId;
+      if (!wasMe) {
+        const name = msg.leftName || 'Opponent';
+        toast(`${name} left — back to lobby`);
+      }
       renderForState();
       break;
     }
@@ -194,8 +230,8 @@ function handleServerMessage(msg) {
         state.room.result = msg.result;
         state.room.wins = msg.wins;
       }
-      const isWin = msg.result && msg.result.kind === 'win';
-      setTimeout(goToGameOver, isWin ? 1200 : 400);
+      const isLineWin = msg.result && msg.result.kind === 'win' && msg.result.line;
+      setTimeout(goToGameOver, isLineWin ? 1200 : 400);
       track('level0_game_over', {
         game: state.room && state.room.gameType,
         kind: msg.result && msg.result.kind,
@@ -498,10 +534,15 @@ function buildWinLineSvg(line, board) {
 function renderScoreboard(el, r) {
   el.innerHTML = '';
   if (!r.players) return;
+  // Compare incoming wins to last seen so we can pulse the card of
+  // whoever just got a point. Reset detection on a new room.
+  const prev = state.lastWins || {};
+  const curr = r.wins || {};
   for (const p of r.players) {
     const card = document.createElement('div');
     card.className = 'score-card';
     if (p.id === r.currentTurn && r.status === 'playing') card.classList.add('is-active');
+    if ((curr[p.id] || 0) > (prev[p.id] || 0)) card.classList.add('is-celebrating');
 
     const name = document.createElement('span');
     name.className = 'score-card-name';
@@ -516,6 +557,7 @@ function renderScoreboard(el, r) {
 
     el.appendChild(card);
   }
+  state.lastWins = { ...curr };
 }
 
 /* ─── Render: Game over ────────────────────────────────────────── */
@@ -568,6 +610,13 @@ async function loadGameCatalog() {
 function renderPicker() {
   const list = $('picker-list');
   list.innerHTML = '';
+  // Toggle the right-edge fade gradient based on whether the row
+  // actually overflows. Done after layout via rAF.
+  requestAnimationFrame(() => {
+    const overflowing = list.scrollWidth > list.clientWidth + 1;
+    const wrap = list.parentElement;
+    if (wrap) wrap.classList.toggle('has-overflow', overflowing);
+  });
   for (const g of state.games) {
     const tile = document.createElement('button');
     tile.type = 'button';
@@ -604,13 +653,24 @@ function init() {
   // by the time the user types their name.
   loadGameCatalog().then(renderPicker);
 
-  $('join-btn').addEventListener('click', () => {
+  // Auto-focus the name input on first load, but skip when we
+  // resumed a session so we don't yank the keyboard up after
+  // a refresh into an active room.
+  if (!loadSession()) {
+    setTimeout(() => $('player-name').focus({ preventScroll: true }), 0);
+  }
+
+  const tryJoin = () => {
     const name = $('player-name').value.trim();
     const code = $('room-code-input').value.trim().toUpperCase();
     if (!name) { toast('Enter your name first'); $('player-name').focus(); return; }
     if (!/^[A-Z]{4}$/.test(code)) { toast('Enter a 4-letter code'); return; }
     state.myName = name;
     send({ type: 'join_room', roomCode: code, playerName: name });
+  };
+  $('join-btn').addEventListener('click', tryJoin);
+  $('room-code-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); tryJoin(); }
   });
 
   $('room-code-input').addEventListener('input', (e) => {

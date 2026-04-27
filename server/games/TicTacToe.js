@@ -142,12 +142,16 @@ class TicTacToe {
     const current = this.players.find((p) => p.id === currentId);
     if (!current || !current.isBot || this.status !== 'playing') return;
     if (this.botTimer) clearTimeout(this.botTimer);
+    // The first move feels like a hang if the bot waits its full
+    // beat — play snappier when the board is empty, then slow to
+    // a "thinking" pace once there's something to react to.
+    const delay = this.moves.length === 0 ? 350 : 750;
     this.botTimer = setTimeout(() => {
       this.botTimer = null;
       if (this.status !== 'playing') return;
       const cell = this.botPickCell(currentId);
       if (cell !== -1) this.handleAction(currentId, { kind: 'place', cell });
-    }, 750);
+    }, delay);
   }
 
   botPickCell(botId) {

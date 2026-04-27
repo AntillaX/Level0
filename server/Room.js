@@ -107,13 +107,15 @@ class Room {
     occ.connected = false;
     occ.ws = null;
 
-    // In the lobby, leaving = gone (so people can re-join with a fresh
-    // identity if they want). Mid-game, keep the seat reserved so
-    // they can reconnect.
+    // Lobby / spectator: just remove and broadcast.
     if (this.state === 'lobby' || occ.isSpectator) {
       this.occupants.delete(id);
       if (!occ.isSpectator && this.hostId === id) {
+        const previousHost = this.hostId;
         this.reassignHost();
+        if (this.hostId && this.hostId !== previousHost) {
+          this.broadcast({ type: 'host_changed', hostId: this.hostId, ...this.getState() });
+        }
       }
       this.broadcast({
         type: occ.isSpectator ? 'spectator_left' : 'player_left',
@@ -124,19 +126,40 @@ class Room {
       return;
     }
 
-    this.broadcast({
-      type: 'player_disconnected',
-      playerId: id,
-      playerName: occ.name,
-      ...this.getState(),
-    });
+    // Mid-game player drop: end the round and bounce everyone back to
+    // the lobby. We treat a deliberate Leave and a network drop the
+    // same way — the round can't continue without them, and the
+    // chill thing is to reset cleanly rather than make survivors wait.
+    this.endRoundDueToLeave(id, occ.name);
   }
 
   removeOccupant(id) {
     const occ = this.occupants.get(id);
     if (!occ) return;
+
+    // Mid-game leave: same path as a network drop — end the round and
+    // bounce everyone back to lobby.
+    if (this.state === 'playing' && !occ.isSpectator && !occ.isBot) {
+      this.occupants.delete(id);
+      if (this.hostId === id) {
+        const prev = this.hostId;
+        this.reassignHost();
+        if (this.hostId && this.hostId !== prev) {
+          this.broadcast({ type: 'host_changed', hostId: this.hostId, ...this.getState() });
+        }
+      }
+      this.endRoundDueToLeave(id, occ.name);
+      return;
+    }
+
     this.occupants.delete(id);
-    if (!occ.isSpectator && this.hostId === id) this.reassignHost();
+    if (!occ.isSpectator && this.hostId === id) {
+      const previousHost = this.hostId;
+      this.reassignHost();
+      if (this.hostId && this.hostId !== previousHost) {
+        this.broadcast({ type: 'host_changed', hostId: this.hostId, ...this.getState() });
+      }
+    }
     this.broadcast({
       type: occ.isSpectator ? 'spectator_left' : 'player_left',
       leftId: id,
@@ -145,9 +168,28 @@ class Room {
     });
   }
 
+  // Tear down the active game and put everyone back in the lobby.
+  // Used for both deliberate Leave and network drops mid-game —
+  // there's no "you win by forfeit" screen, just a brief notice and
+  // the lobby state ready for a Play Again or a new joiner.
+  endRoundDueToLeave(leftId, leftName) {
+    if (this.game && typeof this.game.destroy === 'function') {
+      this.game.destroy();
+    }
+    this.game = null;
+    this.state = 'lobby';
+    this.broadcast({
+      type: 'round_abandoned',
+      leftId,
+      leftName,
+      ...this.getState(),
+    });
+  }
+
   reassignHost() {
     for (const p of this.occupants.values()) {
-      if (!p.isSpectator) {
+      // Don't promote bots or spectators to host.
+      if (!p.isSpectator && !p.isBot) {
         this.hostId = p.id;
         return;
       }
