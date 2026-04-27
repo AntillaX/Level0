@@ -279,6 +279,8 @@ function mergeRoomState(msg) {
     'minPlayers', 'maxPlayers', 'players', 'spectators',
     'board', 'marks', 'order', 'currentTurn', 'status', 'result', 'wins',
     'moveCount', 'cols', 'rows', 'lastMove',
+    // Dots & Boxes
+    'size', 'hLines', 'vLines', 'boxes', 'scores',
   ];
   for (const k of keys) {
     if (msg[k] !== undefined) state.room[k] = msg[k];
@@ -413,6 +415,7 @@ function renderPerson(person, room) {
 const GAME_RENDERERS = {
   tictactoe: renderTicTacToe,
   fourinarow: renderFourInARow,
+  dotsandboxes: renderDotsAndBoxes,
 };
 
 function renderGame() {
@@ -610,6 +613,171 @@ function markClass(m) {
   return 'accent';
 }
 
+/* ─── Render: Dots & Boxes ─────────────────────────────────────── */
+
+// 5×5 boxes (6×6 dots) drawn as SVG. Coordinate system: viewBox 0..N,
+// dots at integer (col, row) — so box (r, c) occupies the unit square
+// from (c, r) to (c+1, r+1). Padding around the grid so dots don't
+// touch the SVG edge. */
+function renderDotsAndBoxes(stage, r) {
+  const N = r.size || 5;
+  const PAD = 0.35;
+  const NS = 'http://www.w3.org/2000/svg';
+
+  const myMark = r.marks && r.marks[state.playerId];
+  const isMyTurn = state.role === 'player' && r.currentTurn === state.playerId && r.status === 'playing';
+
+  const banner = $('turn-banner');
+  if (r.status === 'finished') {
+    banner.textContent = '';
+  } else if (isMyTurn) {
+    banner.innerHTML = `Your turn — <span class="${markClass(myMark)}">●</span>`;
+  } else {
+    const turnPlayer = (r.players || []).find((p) => p.id === r.currentTurn);
+    const turnMark = r.marks && r.marks[r.currentTurn];
+    if (turnPlayer) {
+      banner.innerHTML = `<span class="accent">${turnPlayer.name}</span> &middot; <span class="${markClass(turnMark)}">●</span>`;
+    } else {
+      banner.textContent = '…';
+    }
+  }
+
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('class', 'db-board');
+  svg.setAttribute('viewBox', `${-PAD} ${-PAD} ${N + 2 * PAD} ${N + 2 * PAD}`);
+  svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+
+  // Background panel (subtle gradient fill via CSS) — purely visual.
+  const bg = document.createElementNS(NS, 'rect');
+  bg.setAttribute('class', 'db-panel');
+  bg.setAttribute('x', String(-PAD));
+  bg.setAttribute('y', String(-PAD));
+  bg.setAttribute('width', String(N + 2 * PAD));
+  bg.setAttribute('height', String(N + 2 * PAD));
+  bg.setAttribute('rx', '0.2');
+  svg.appendChild(bg);
+
+  const lastMove = r.lastMove;
+  const isLast = (orient, row, col) =>
+    lastMove && lastMove.orientation === orient && lastMove.row === row && lastMove.col === col;
+
+  // ── Boxes (claimed fill) ──
+  for (let row = 0; row < N; row++) {
+    for (let c = 0; c < N; c++) {
+      const owner = (r.boxes || [])[row * N + c];
+      const rect = document.createElementNS(NS, 'rect');
+      rect.setAttribute('class', 'db-box' + (owner ? ` is-claimed ${ownerClass(owner)}` : ''));
+      rect.setAttribute('x', String(c + 0.05));
+      rect.setAttribute('y', String(row + 0.05));
+      rect.setAttribute('width', '0.9');
+      rect.setAttribute('height', '0.9');
+      rect.setAttribute('rx', '0.05');
+      svg.appendChild(rect);
+    }
+  }
+
+  // ── Drawn lines ──
+  // Horizontal: hLines[row * N + col] for row 0..N, col 0..N-1.
+  for (let row = 0; row <= N; row++) {
+    for (let c = 0; c < N; c++) {
+      const drawer = (r.hLines || [])[row * N + c];
+      if (drawer) {
+        const line = document.createElementNS(NS, 'line');
+        line.setAttribute('class', `db-line is-drawn ${ownerClass(drawer)}` + (isLast('h', row, c) ? ' is-last' : ''));
+        line.setAttribute('x1', String(c));
+        line.setAttribute('y1', String(row));
+        line.setAttribute('x2', String(c + 1));
+        line.setAttribute('y2', String(row));
+        svg.appendChild(line);
+      }
+    }
+  }
+  // Vertical: vLines[row * (N+1) + col] for row 0..N-1, col 0..N.
+  for (let row = 0; row < N; row++) {
+    for (let c = 0; c <= N; c++) {
+      const drawer = (r.vLines || [])[row * (N + 1) + c];
+      if (drawer) {
+        const line = document.createElementNS(NS, 'line');
+        line.setAttribute('class', `db-line is-drawn ${ownerClass(drawer)}` + (isLast('v', row, c) ? ' is-last' : ''));
+        line.setAttribute('x1', String(c));
+        line.setAttribute('y1', String(row));
+        line.setAttribute('x2', String(c));
+        line.setAttribute('y2', String(row + 1));
+        svg.appendChild(line);
+      }
+    }
+  }
+
+  // ── Click targets for undrawn lines ──
+  // Larger transparent rect over each undrawn segment so finger taps
+  // are forgiving. Only attached when it's the local player's turn.
+  if (isMyTurn) {
+    const HIT_PAD = 0.22; // half-thickness of the click area
+    for (let row = 0; row <= N; row++) {
+      for (let c = 0; c < N; c++) {
+        if ((r.hLines || [])[row * N + c]) continue;
+        const hit = document.createElementNS(NS, 'rect');
+        hit.setAttribute('class', `db-hit ${markClass(myMark)}`);
+        hit.setAttribute('x', String(c + 0.1));
+        hit.setAttribute('y', String(row - HIT_PAD));
+        hit.setAttribute('width', '0.8');
+        hit.setAttribute('height', String(HIT_PAD * 2));
+        hit.dataset.orient = 'h';
+        hit.dataset.row = String(row);
+        hit.dataset.col = String(c);
+        svg.appendChild(hit);
+      }
+    }
+    for (let row = 0; row < N; row++) {
+      for (let c = 0; c <= N; c++) {
+        if ((r.vLines || [])[row * (N + 1) + c]) continue;
+        const hit = document.createElementNS(NS, 'rect');
+        hit.setAttribute('class', `db-hit ${markClass(myMark)}`);
+        hit.setAttribute('x', String(c - HIT_PAD));
+        hit.setAttribute('y', String(row + 0.1));
+        hit.setAttribute('width', String(HIT_PAD * 2));
+        hit.setAttribute('height', '0.8');
+        hit.dataset.orient = 'v';
+        hit.dataset.row = String(row);
+        hit.dataset.col = String(c);
+        svg.appendChild(hit);
+      }
+    }
+
+    svg.addEventListener('click', (e) => {
+      const hit = e.target.closest('.db-hit');
+      if (!hit) return;
+      send({
+        type: 'game_action',
+        action: {
+          kind: 'line',
+          orientation: hit.dataset.orient,
+          row: Number(hit.dataset.row),
+          col: Number(hit.dataset.col),
+        },
+      });
+    });
+  }
+
+  // ── Dots (drawn last so they sit on top) ──
+  for (let row = 0; row <= N; row++) {
+    for (let c = 0; c <= N; c++) {
+      const dot = document.createElementNS(NS, 'circle');
+      dot.setAttribute('class', 'db-dot');
+      dot.setAttribute('cx', String(c));
+      dot.setAttribute('cy', String(row));
+      dot.setAttribute('r', '0.07');
+      svg.appendChild(dot);
+    }
+  }
+
+  stage.appendChild(svg);
+}
+
+function ownerClass(mark) {
+  return mark === 'A' ? 'is-color-a' : mark === 'B' ? 'is-color-b' : '';
+}
+
 // Renders a winning-line SVG sized to the board's actual pixel
 // dimensions. Coordinates are read via getBoundingClientRect so the
 // line lands exactly on cell centers regardless of board size, gap,
@@ -675,14 +843,19 @@ function renderScoreboard(el, r) {
     const wins = document.createElement('span');
     wins.className = 'score-card-wins';
     const mark = (r.marks && r.marks[p.id]) || '';
-    // Four in a Row: render the mark as a colored disc instead of
-    // the bare letter, since 'A' / 'B' don't carry meaning to the
-    // player — the colors do.
-    const isFR = r.gameType === 'fourinarow';
-    const markEl = isFR
+    // FIAR / D&B render the mark as a colored disc instead of the
+    // bare 'A' / 'B' letter — the color carries the meaning.
+    const isDisc = r.gameType === 'fourinarow' || r.gameType === 'dotsandboxes';
+    const markEl = isDisc
       ? `<span class="score-card-mark fr-disc ${markClass(mark)}"></span>`
       : `<span class="score-card-mark">${mark}</span>`;
-    wins.innerHTML = `${markEl}${(r.wins && r.wins[p.id]) || 0}`;
+    // Dots & Boxes uses the within-round box count as the live score
+    // while playing; the cross-round win tally lives on the game-
+    // over screen. Other games just show the win tally.
+    const liveScore = r.gameType === 'dotsandboxes' && r.status === 'playing'
+      ? (r.scores && r.scores[p.id]) || 0
+      : (r.wins && r.wins[p.id]) || 0;
+    wins.innerHTML = `${markEl}${liveScore}`;
     card.appendChild(wins);
 
     el.appendChild(card);
