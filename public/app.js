@@ -19,10 +19,6 @@ const state = {
   games: [],
   pickerLoaded: false,
 
-  // Mid-game opponent disconnect — { leftName, endsAt } or null.
-  forfeit: null,
-  forfeitTickTimer: null,
-
   // Last known wins map so we can detect changes and pulse the
   // score card belonging to whoever just won.
   lastWins: null,
@@ -197,20 +193,16 @@ function handleServerMessage(msg) {
       break;
     }
 
-    case 'opponent_left_warning': {
+    case 'round_abandoned': {
+      // A seated player left mid-game. Server has already cleared
+      // the game and flipped the room back to 'lobby'. We toast the
+      // survivors so they know why the screen changed.
       mergeRoomState(msg);
-      state.forfeit = {
-        leftName: msg.leftName,
-        endsAt: Date.now() + (msg.graceMs || 10000),
-      };
-      renderForState();
-      startForfeitCountdown();
-      break;
-    }
-    case 'opponent_returned': {
-      mergeRoomState(msg);
-      state.forfeit = null;
-      stopForfeitCountdown();
+      const wasMe = msg.leftId === state.playerId;
+      if (!wasMe) {
+        const name = msg.leftName || 'Opponent';
+        toast(`${name} left — back to lobby`);
+      }
       renderForState();
       break;
     }
@@ -233,14 +225,11 @@ function handleServerMessage(msg) {
       // status:'finished', so the board is current. We still merge
       // the wins map and switch screens — but pause briefly first
       // so the winning line animation gets to play before we yank
-      // the board off-screen. (Forfeits don't have a line, so we
-      // skip the long pause for those.)
+      // the board off-screen.
       if (state.room) {
         state.room.result = msg.result;
         state.room.wins = msg.wins;
       }
-      state.forfeit = null;
-      stopForfeitCountdown();
       const isLineWin = msg.result && msg.result.kind === 'win' && msg.result.line;
       setTimeout(goToGameOver, isLineWin ? 1200 : 400);
       track('level0_game_over', {
@@ -437,41 +426,6 @@ function renderGame() {
   }
   renderer(stage, r);
   renderScoreboard($('scoreboard'), r);
-  renderForfeitBanner();
-}
-
-// ── Mid-game opponent grace banner ──────────────────────────────
-// Driven by state.forfeit (set on opponent_left_warning, cleared on
-// opponent_returned). The countdown ticker just re-renders the text;
-// the actual round ending is server-side.
-
-function renderForfeitBanner() {
-  const banner = $('forfeit-banner');
-  const text = $('forfeit-text');
-  if (!state.forfeit) {
-    banner.classList.add('hidden');
-    return;
-  }
-  banner.classList.remove('hidden');
-  const remaining = Math.max(0, Math.ceil((state.forfeit.endsAt - Date.now()) / 1000));
-  const name = state.forfeit.leftName || 'Opponent';
-  text.innerHTML = `<span class="forfeit-text-name">${name}</span> left — ` +
-    `<span class="forfeit-text-count">round ends in ${remaining}s</span>`;
-}
-
-function startForfeitCountdown() {
-  stopForfeitCountdown();
-  state.forfeitTickTimer = setInterval(() => {
-    if (!state.forfeit) { stopForfeitCountdown(); return; }
-    renderForfeitBanner();
-    if (state.forfeit.endsAt - Date.now() <= 0) stopForfeitCountdown();
-  }, 250);
-}
-function stopForfeitCountdown() {
-  if (state.forfeitTickTimer) {
-    clearInterval(state.forfeitTickTimer);
-    state.forfeitTickTimer = null;
-  }
 }
 
 /* ─── Render: Tic-Tac-Toe ──────────────────────────────────────── */
@@ -616,11 +570,10 @@ function renderGameOver() {
   const sub = $('gameover-sub');
   if (r.result && r.result.kind === 'win') {
     const winner = (r.players || []).find((p) => p.id === r.result.winnerId);
-    const byForfeit = r.result.by === 'opponent_left';
     if (winner) {
       const isYou = winner.id === state.playerId;
       title.textContent = isYou ? 'You win' : `${winner.name} wins`;
-      sub.textContent = byForfeit ? 'Opponent left.' : (isYou ? 'Nice one.' : 'Better luck next round.');
+      sub.textContent = isYou ? 'Nice one.' : 'Better luck next round.';
     } else {
       title.textContent = 'Winner';
       sub.textContent = '';
@@ -628,9 +581,6 @@ function renderGameOver() {
   } else if (r.result && r.result.kind === 'draw') {
     title.textContent = 'Draw';
     sub.textContent = 'Even game.';
-  } else if (r.result && r.result.kind === 'abandoned') {
-    title.textContent = 'Round ended';
-    sub.textContent = 'No one was around to finish.';
   } else {
     title.textContent = 'Game over';
     sub.textContent = '';
@@ -748,7 +698,6 @@ function init() {
   $('start-btn').addEventListener('click', () => send({ type: 'start_game' }));
   $('add-bot-btn').addEventListener('click', () => send({ type: 'add_bot' }));
   $('play-again-btn').addEventListener('click', () => send({ type: 'play_again' }));
-  $('forfeit-btn').addEventListener('click', () => send({ type: 'forfeit' }));
 }
 
 document.addEventListener('DOMContentLoaded', init);

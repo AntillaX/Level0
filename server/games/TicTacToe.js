@@ -154,31 +154,6 @@ class TicTacToe {
     }, delay);
   }
 
-  // External end (forfeit / opponent left). winnerId may be null
-  // for an abandoned round.
-  endGame(reason, winnerId) {
-    if (this.status === 'finished') return;
-    if (this.botTimer) { clearTimeout(this.botTimer); this.botTimer = null; }
-    this.status = 'finished';
-    if (winnerId) {
-      this.result = { kind: 'win', winnerId, line: null, by: reason };
-      this.wins[winnerId] = (this.wins[winnerId] || 0) + 1;
-    } else {
-      this.result = { kind: 'abandoned', by: reason };
-    }
-    this.broadcast({
-      type: 'game_update',
-      lastMove: null,
-      ...this.getFullState(),
-    });
-    this.broadcast({
-      type: 'game_over',
-      result: this.result,
-      wins: this.wins,
-    });
-    if (this.onEnd) this.onEnd();
-  }
-
   botPickCell(botId) {
     const myMark = this.marks[botId];
     const oppMark = myMark === 'X' ? 'O' : 'X';

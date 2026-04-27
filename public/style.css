@@ -279,25 +279,28 @@ body {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
+  /* Vertically center the whole landing content rather than pinning
+     the tiles to the bottom. The top stack lands roughly in the
+     middle, with the picker tiles immediately under it — that puts
+     the tiles at ~60% from the top (3rd quadrant) on a phone, which
+     keeps them within thumb reach but not glued to the edge. */
+  justify-content: center;
   width: 100%;
   max-width: 460px;
   margin: 0 auto;
-  padding: 4.5rem 1.25rem 3rem;
+  padding: 4.5rem 1.25rem 2rem;
   padding-left: max(1.25rem, env(safe-area-inset-left));
   padding-right: max(1.25rem, env(safe-area-inset-right));
-  padding-bottom: max(3rem, calc(env(safe-area-inset-bottom) + 1.5rem));
+  padding-bottom: max(2rem, env(safe-area-inset-bottom));
 }
 .landing-top { flex: 0 0 auto; }
 .landing-bottom {
-  /* Push the tiles below the top stack but leave a comfortable gap
-     above the screen edge — they shouldn't feel pinned.
-     position:relative anchors the right-edge fade gradient that
+  /* position:relative anchors the right-edge fade gradient that
      hints "there are more games — scroll" once the tile row
      overflows horizontally. */
   position: relative;
-  margin-top: auto;
+  flex: 0 0 auto;
   padding-top: 2.5rem;
-  margin-bottom: 1.25rem;
 }
 .landing-bottom.has-overflow::after {
   content: "";
@@ -564,31 +567,6 @@ body {
   outline: none;
 }
 .ttt-cell.is-clickable:active { transform: scale(0.97); }
-
-/* Mid-game disconnect banner — opponent left, the round is about to
-   end automatically. Survivor can tap "End Round" to skip the wait. */
-.forfeit-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.8rem;
-  width: min(86vw, 360px);
-  margin: 0 auto 0.9rem;
-  padding: 0.65rem 0.9rem;
-  background: rgba(200, 122, 106, 0.12);
-  border: 1px solid rgba(200, 122, 106, 0.35);
-  border-radius: var(--radius);
-  font-size: 0.78rem;
-  color: var(--text-primary);
-}
-.forfeit-banner.hidden { display: none; }
-.forfeit-text {
-  flex: 1 1 auto;
-  letter-spacing: 0.02em;
-}
-.forfeit-text-name { color: var(--accent); font-weight: 600; }
-.forfeit-text-count { color: var(--text-secondary); }
-.forfeit-btn { flex: 0 0 auto; }
 
 .ttt-mark {
   font-size: clamp(2.6rem, 12vw, 4rem);
