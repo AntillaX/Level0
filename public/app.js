@@ -531,7 +531,12 @@ function renderFourInARow(stage, r) {
     const colFull = topRow(r.board, c, rows, cols) === -1;
     const canPlay = !colFull && isMyTurn;
     col.disabled = !canPlay;
-    if (canPlay) col.classList.add('is-clickable');
+    if (canPlay) {
+      col.classList.add('is-clickable');
+      // Tag the column with the local player's color so the hover
+      // preview disc renders in their token color, not a generic accent.
+      if (myMark) col.classList.add(myMark === 'A' ? 'is-color-a' : 'is-color-b');
+    }
 
     for (let row = 0; row < rows; row++) {
       const idx = row * cols + c;
