@@ -222,11 +222,18 @@ class Room {
     // current room state (roomCode, hostId, players, roomState, etc).
     // Without this the client wouldn't know to flip from lobby → game,
     // since the game class only knows about its own state.
+    //
+    // Also pass broadcastPerViewer for games that show per-player
+    // private state (Mafia: each player sees a different view of the
+    // world depending on their role + alive status).
     this.game = new GameClass(
       players,
       this.broadcastWithRoomState.bind(this),
       () => this.onGameEnd(),
-      { wins: this.persistentWins },
+      {
+        wins: this.persistentWins,
+        broadcastPerViewer: this.broadcastPerViewer.bind(this),
+      },
     );
     this.state = 'playing';
     this.game.start();
@@ -235,6 +242,20 @@ class Room {
 
   broadcastWithRoomState(msg) {
     this.broadcast({ ...this.getState(), ...msg });
+  }
+
+  // Send a per-viewer message: viewerFn(occupant) returns a payload
+  // for that occupant (or null/undefined to skip them). The current
+  // room state is merged in automatically. Used for games where
+  // players see different things (Mafia private actions).
+  broadcastPerViewer(viewerFn) {
+    const baseState = this.getState();
+    for (const occ of this.occupants.values()) {
+      if (!occ.connected || !occ.ws || occ.ws.readyState !== 1) continue;
+      const payload = viewerFn(occ);
+      if (!payload) continue;
+      occ.ws.send(JSON.stringify({ ...baseState, ...payload }));
+    }
   }
 
   playAgain() {

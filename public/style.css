@@ -827,6 +827,292 @@ body {
   fill: rgba(255, 255, 255, 0.06);
 }
 
+/* ─── Mafia ─────────────────────────────────────────────────────── */
+
+:root {
+  --mafia-mafia: #c87a6a;
+  --mafia-detective: #7aa9c8;
+  --mafia-civilian: var(--text-primary);
+}
+
+.mafia {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  width: min(94vw, 460px);
+  margin: 0 auto;
+}
+
+.dim { color: var(--text-secondary); }
+.is-color-mafia { color: var(--mafia-mafia); }
+
+/* Reveal-phase card. Front says "Tap to reveal", back shows your role.
+   3D flip on tap. */
+.mafia-reveal {
+  display: flex;
+  justify-content: center;
+  margin-top: 0.75rem;
+}
+.mafia-reveal-card {
+  width: min(86vw, 320px);
+  aspect-ratio: 5 / 7;
+  perspective: 900px;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  position: relative;
+}
+.mafia-reveal-card.mafia-reveal-spectate { aspect-ratio: 5 / 2; cursor: default; }
+.mafia-reveal-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transition: transform 0.55s cubic-bezier(0.34, 1.18, 0.64, 1);
+  transform-style: preserve-3d;
+}
+.mafia-reveal-card.is-flipped .mafia-reveal-inner { transform: rotateY(180deg); }
+.mafia-reveal-front, .mafia-reveal-back {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 1.25rem;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+.mafia-reveal-front {
+  background:
+    repeating-linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.025) 0 8px,
+      rgba(255, 255, 255, 0.045) 8px 16px
+    ),
+    linear-gradient(180deg, #1c1814 0%, #0e0c08 100%);
+  border: 1px solid rgba(212, 168, 67, 0.25);
+}
+.mafia-reveal-back {
+  transform: rotateY(180deg);
+  background: linear-gradient(180deg, #1c1814 0%, #0e0c08 100%);
+  border: 1px solid rgba(212, 168, 67, 0.45);
+  box-shadow: 0 0 24px -4px var(--accent-glow);
+}
+.mafia-reveal-eyebrow {
+  font-size: 0.7rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 1rem;
+}
+.mafia-reveal-tap {
+  font-size: 0.95rem;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+  font-weight: 600;
+}
+.mafia-reveal-flavor {
+  margin-top: 1rem;
+  font-size: 0.88rem;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+/* Role badges — color-coded pill. */
+.mafia-role-badge {
+  display: inline-block;
+  padding: 0.18rem 0.55rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  border-radius: 4px;
+  border: 1px solid;
+}
+.mafia-role-badge.is-role-mafia {
+  color: var(--mafia-mafia);
+  background: rgba(200, 122, 106, 0.12);
+  border-color: rgba(200, 122, 106, 0.4);
+}
+.mafia-role-badge.is-role-detective {
+  color: var(--mafia-detective);
+  background: rgba(122, 169, 200, 0.12);
+  border-color: rgba(122, 169, 200, 0.4);
+}
+.mafia-role-badge.is-role-civilian {
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--border);
+}
+.mafia-role-badge.is-out {
+  color: var(--text-dim);
+  background: transparent;
+  border-color: var(--border);
+}
+
+/* Generic card frame for night/day sections. */
+.mafia-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.1rem;
+}
+.mafia-card-quiet {
+  background: transparent;
+  border-color: var(--border);
+  text-align: center;
+}
+.mafia-card-heading {
+  font-size: 0.9rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+}
+.mafia-card-sub {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 0.85rem;
+}
+.mafia-detective-result {
+  font-size: 1rem;
+  color: var(--text-primary);
+  margin: 0.6rem 0 0.2rem;
+}
+
+/* Vote list — alive players as tappable rows showing the running tally. */
+.mafia-vote-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.mafia-vote-btn {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 0.7rem 0.9rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.92rem;
+  cursor: pointer;
+  transition: border-color var(--t-fast), background var(--t-fast);
+}
+.mafia-vote-btn:hover, .mafia-vote-btn:focus-visible {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.05);
+  outline: none;
+}
+.mafia-vote-btn.is-mine {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.mafia-vote-btn.is-static {
+  cursor: default;
+  opacity: 0.85;
+}
+.mafia-vote-name { font-weight: 500; }
+.mafia-vote-count {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  letter-spacing: 0.08em;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 0.1rem 0.5rem;
+  border-radius: 4px;
+}
+.mafia-vote-skip {
+  background: transparent;
+  border-style: dashed;
+  color: var(--text-secondary);
+}
+
+.mafia-spectate-list {
+  list-style: none;
+  margin: 0.5rem 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+}
+.mafia-progress {
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  letter-spacing: 0.05em;
+  margin-top: 0.5rem;
+}
+
+/* Day phase — banners for what just happened. */
+.mafia-day-killed, .mafia-day-resolved {
+  padding: 0.75rem 0.95rem;
+  background: rgba(200, 122, 106, 0.08);
+  border: 1px solid rgba(200, 122, 106, 0.25);
+  border-radius: var(--radius);
+  font-size: 0.88rem;
+  text-align: center;
+  line-height: 1.55;
+}
+.mafia-day-resolved {
+  background: rgba(212, 168, 67, 0.08);
+  border-color: rgba(212, 168, 67, 0.25);
+}
+
+/* Players row — running list shown on every screen. Eliminated
+   players fade out so the table can see who's left. */
+.mafia-players {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: center;
+}
+.mafia-player {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.7rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.82rem;
+  color: var(--text-primary);
+}
+.mafia-player.is-self { border-color: var(--accent-soft); }
+.mafia-player.is-out {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+
+/* Game-over roles reveal. */
+.mafia-roles-reveal {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  width: 100%;
+  max-width: 320px;
+  margin: 0 auto;
+}
+.mafia-roles-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0.8rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.88rem;
+}
+.mafia-roles-row.is-role-mafia { border-color: rgba(200, 122, 106, 0.35); }
+.mafia-roles-row.is-role-detective { border-color: rgba(122, 169, 200, 0.35); }
+.mafia-roles-name { font-weight: 500; }
+
 /* Score-card disc — a small filled circle in the player's color.
    Replaces the plain X/O letter the TTT scoreboard uses. Shared
    between Four in a Row and Dots & Boxes. */

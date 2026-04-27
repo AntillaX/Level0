@@ -176,7 +176,15 @@ function handleServerMessage(msg) {
     case 'player_disconnected':
     case 'player_reconnected':
     case 'bot_added':
-    case 'bot_removed': {
+    case 'bot_removed':
+    // Mafia phase events — same merge+render handling.
+    case 'reveal_progress':
+    case 'night_started':
+    case 'mafia_voted':
+    case 'detective_done':
+    case 'day_started':
+    case 'day_voted':
+    case 'day_resolved': {
       mergeRoomState(msg);
       renderForState();
       break;
@@ -281,6 +289,10 @@ function mergeRoomState(msg) {
     'moveCount', 'cols', 'rows', 'lastMove',
     // Dots & Boxes
     'size', 'hLines', 'vLines', 'boxes', 'scores',
+    // Mafia
+    'phase', 'round', 'alive', 'revealed', 'eliminations',
+    'visibleRoles', 'myRole', 'mafiaVotes', 'detectiveTarget',
+    'detectiveResult', 'lastNightKill', 'dayVotes', 'eliminated',
   ];
   for (const k of keys) {
     if (msg[k] !== undefined) state.room[k] = msg[k];
@@ -339,6 +351,9 @@ function renderRoom() {
   const playerCount = (r.players || []).length;
   const enoughPlayers = playerCount >= (r.minPlayers || 2);
   const roomFull = playerCount >= (r.maxPlayers || 2);
+  // Mafia is a social-deduction game — bots can't bluff, so the
+  // server rejects bot adds. Hide the button entirely for that game.
+  const supportsBots = r.gameType !== 'mafia';
   const startBtn = $('start-btn');
   const addBotBtn = $('add-bot-btn');
   const waitMsg = $('waiting-msg');
@@ -352,7 +367,7 @@ function renderRoom() {
     startBtn.classList.remove('hidden');
     startBtn.disabled = !enoughPlayers;
     startBtn.textContent = enoughPlayers ? 'Start Game' : `Need ${r.minPlayers} players`;
-    addBotBtn.classList.toggle('hidden', roomFull);
+    addBotBtn.classList.toggle('hidden', roomFull || !supportsBots);
     waitMsg.classList.add('hidden');
   } else {
     startBtn.classList.add('hidden');
@@ -416,6 +431,7 @@ const GAME_RENDERERS = {
   tictactoe: renderTicTacToe,
   fourinarow: renderFourInARow,
   dotsandboxes: renderDotsAndBoxes,
+  mafia: renderMafia,
 };
 
 function renderGame() {
@@ -778,6 +794,418 @@ function ownerClass(mark) {
   return mark === 'A' ? 'is-color-a' : mark === 'B' ? 'is-color-b' : '';
 }
 
+/* ─── Render: Mafia ─────────────────────────────────────────────── */
+//
+// Mafia is rendered into the same #game-stage as the other games.
+// The display branches on r.phase. Each phase shows a different
+// view depending on the local player's role and alive status —
+// state.room is already filtered by the server, so we just trust
+// what's there.
+
+function renderMafia(stage, r) {
+  $('game-name-label').textContent = `Mafia · Round ${r.round || 1}`;
+  const banner = $('turn-banner');
+  banner.innerHTML = mafiaBannerHTML(r);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'mafia';
+  if (r.phase === 'reveal') wrap.appendChild(renderMafiaReveal(r));
+  else if (r.phase === 'night') wrap.appendChild(renderMafiaNight(r));
+  else if (r.phase === 'day') wrap.appendChild(renderMafiaDay(r));
+  wrap.appendChild(renderMafiaPlayers(r));
+
+  stage.appendChild(wrap);
+}
+
+function mafiaBannerHTML(r) {
+  if (r.phase === 'reveal') {
+    const acked = (r.revealed || []).length;
+    const total = (r.players || []).length;
+    return `Reveal your role <span class="dim">(${acked}/${total} ready)</span>`;
+  }
+  if (r.phase === 'night') return `<span class="accent">Night</span> falls`;
+  if (r.phase === 'day') return `<span class="accent">Day</span> ${r.round || 1}`;
+  return '';
+}
+
+// Card flips on tap to show the local player's secret role.
+function renderMafiaReveal(r) {
+  const wrap = document.createElement('div');
+  wrap.className = 'mafia-reveal';
+
+  const me = (r.players || []).find((p) => p.id === state.playerId);
+  const role = r.myRole;
+  const acked = (r.revealed || []).includes(state.playerId);
+
+  // Spectators don't get a role to flip — show a status card instead.
+  if (state.role === 'spectator' || !role) {
+    const note = document.createElement('div');
+    note.className = 'mafia-reveal-card mafia-reveal-spectate';
+    note.innerHTML = `<div class="mafia-reveal-front"><span class="dim">Spectating</span></div>`;
+    wrap.appendChild(note);
+    return wrap;
+  }
+
+  const card = document.createElement('div');
+  card.className = 'mafia-reveal-card' + (acked ? ' is-flipped' : '');
+  card.tabIndex = 0;
+  card.setAttribute('role', 'button');
+  card.setAttribute('aria-label', acked ? `You are ${role}` : 'Tap to reveal your role');
+
+  const inner = document.createElement('div');
+  inner.className = 'mafia-reveal-inner';
+
+  const front = document.createElement('div');
+  front.className = 'mafia-reveal-front';
+  front.innerHTML = `<span class="mafia-reveal-eyebrow">Your role</span><span class="mafia-reveal-tap">Tap to reveal</span>`;
+  inner.appendChild(front);
+
+  const back = document.createElement('div');
+  back.className = `mafia-reveal-back is-role-${role}`;
+  back.appendChild(roleBadge(role));
+  const flavor = document.createElement('p');
+  flavor.className = 'mafia-reveal-flavor';
+  flavor.innerHTML = roleFlavor(role, r);
+  back.appendChild(flavor);
+  inner.appendChild(back);
+
+  card.appendChild(inner);
+
+  const handler = () => {
+    if (card.classList.contains('is-flipped')) return;
+    card.classList.add('is-flipped');
+    // Server tracks the ack — flip locally first for snappy feel,
+    // then notify the server so the count progresses.
+    send({ type: 'game_action', action: { kind: 'reveal_ack' } });
+  };
+  card.addEventListener('click', handler);
+  card.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handler(); }
+  });
+  wrap.appendChild(card);
+  return wrap;
+}
+
+function roleFlavor(role, r) {
+  if (role === 'mafia') {
+    const teammates = (r.players || []).filter(
+      (p) => p.id !== state.playerId && (r.visibleRoles || {})[p.id] === 'mafia'
+    );
+    if (teammates.length === 0) {
+      return 'You are <strong>Mafia</strong>. You work alone — eliminate the town.';
+    }
+    const names = teammates.map((p) => `<strong class="is-color-mafia">${p.name}</strong>`).join(', ');
+    return `You are <strong>Mafia</strong>. Your teammate${teammates.length > 1 ? 's' : ''}: ${names}.`;
+  }
+  if (role === 'detective') return 'You are the <strong>Detective</strong>. Each night, investigate one player.';
+  return 'You are a <strong>Civilian</strong>. Find the Mafia and vote them out.';
+}
+
+function roleBadge(role) {
+  const span = document.createElement('span');
+  span.className = `mafia-role-badge is-role-${role}`;
+  span.textContent = role.toUpperCase();
+  return span;
+}
+
+// Night: mafia vote, detective investigates, civilians wait.
+function renderMafiaNight(r) {
+  const wrap = document.createElement('div');
+  wrap.className = 'mafia-night';
+
+  const role = r.myRole;
+  const isAlive = (r.alive || {})[state.playerId];
+  const isSpectator = state.role === 'spectator' || !role || !isAlive;
+
+  // Mafia: see teammates' votes + cast your own.
+  if (!isSpectator && role === 'mafia') {
+    wrap.appendChild(renderNightMafiaVote(r));
+  } else if (!isSpectator && role === 'detective') {
+    wrap.appendChild(renderNightDetective(r));
+  } else if (!isSpectator) {
+    // Living civilian — just waits.
+    wrap.appendChild(textCard('You are asleep.', 'The Mafia and the Detective are awake.'));
+  } else {
+    // Eliminated / spectator — show the omniscient view.
+    wrap.appendChild(renderNightSpectator(r));
+  }
+
+  // Progress hint for everyone (how many night actions resolved).
+  wrap.appendChild(nightProgress(r));
+  return wrap;
+}
+
+function renderNightMafiaVote(r) {
+  const card = document.createElement('div');
+  card.className = 'mafia-card';
+  card.appendChild(headingEl('Pick a target'));
+  const sub = document.createElement('p');
+  sub.className = 'mafia-card-sub';
+  sub.textContent = 'When all mafia have voted, the most-voted target dies.';
+  card.appendChild(sub);
+
+  const myVote = (r.mafiaVotes || {})[state.playerId];
+  const list = document.createElement('div');
+  list.className = 'mafia-vote-list';
+  const targets = (r.players || []).filter((p) => (r.alive || {})[p.id] && (r.visibleRoles || {})[p.id] !== 'mafia');
+  for (const p of targets) {
+    const btn = mafiaVoteButton(p, myVote === p.id, r.mafiaVotes || {});
+    btn.addEventListener('click', () => {
+      send({ type: 'game_action', action: { kind: 'mafia_vote', targetId: p.id } });
+    });
+    list.appendChild(btn);
+  }
+  card.appendChild(list);
+  return card;
+}
+
+function renderNightDetective(r) {
+  const card = document.createElement('div');
+  card.className = 'mafia-card';
+  card.appendChild(headingEl('Investigate someone'));
+
+  const result = r.detectiveResult;
+  if (result) {
+    const target = (r.players || []).find((p) => p.id === result.targetId);
+    const verdict = document.createElement('p');
+    verdict.className = 'mafia-detective-result';
+    verdict.innerHTML = `<strong>${target ? target.name : '?'}</strong> is <strong class="${result.isMafia ? 'is-color-mafia' : 'accent'}">${result.isMafia ? 'Mafia' : 'NOT Mafia'}</strong>.`;
+    card.appendChild(verdict);
+    return card;
+  }
+
+  const sub = document.createElement('p');
+  sub.className = 'mafia-card-sub';
+  sub.textContent = 'Pick one player to investigate. The result is yours alone.';
+  card.appendChild(sub);
+
+  const list = document.createElement('div');
+  list.className = 'mafia-vote-list';
+  const targets = (r.players || []).filter((p) => (r.alive || {})[p.id] && p.id !== state.playerId);
+  for (const p of targets) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'mafia-vote-btn';
+    btn.innerHTML = `<span class="mafia-vote-name">${p.name}</span>`;
+    btn.addEventListener('click', () => {
+      send({ type: 'game_action', action: { kind: 'investigate', targetId: p.id } });
+    });
+    list.appendChild(btn);
+  }
+  card.appendChild(list);
+  return card;
+}
+
+function renderNightSpectator(r) {
+  const card = document.createElement('div');
+  card.className = 'mafia-card';
+  card.appendChild(headingEl('Night view'));
+
+  // Mafia votes
+  const mafiaVotes = r.mafiaVotes || {};
+  const mafiaVoteEntries = Object.entries(mafiaVotes);
+  if (mafiaVoteEntries.length) {
+    const sub = document.createElement('p');
+    sub.className = 'mafia-card-sub';
+    sub.textContent = 'Mafia votes';
+    card.appendChild(sub);
+    const list = document.createElement('ul');
+    list.className = 'mafia-spectate-list';
+    for (const [voterId, targetId] of mafiaVoteEntries) {
+      const voter = (r.players || []).find((p) => p.id === voterId);
+      const target = (r.players || []).find((p) => p.id === targetId);
+      const li = document.createElement('li');
+      li.innerHTML = `<span class="is-color-mafia">${voter ? voter.name : '?'}</span> → ${target ? target.name : '?'}`;
+      list.appendChild(li);
+    }
+    card.appendChild(list);
+  }
+
+  if (r.detectiveResult) {
+    const det = document.createElement('p');
+    det.className = 'mafia-card-sub';
+    const target = (r.players || []).find((p) => p.id === r.detectiveResult.targetId);
+    det.innerHTML = `Detective investigated <strong>${target ? target.name : '?'}</strong> → ${r.detectiveResult.isMafia ? 'Mafia' : 'not Mafia'}`;
+    card.appendChild(det);
+  }
+  return card;
+}
+
+function nightProgress(r) {
+  // How many of the required night actions are done?
+  const aliveMafia = (r.players || []).filter((p) => (r.alive || {})[p.id] && (r.visibleRoles || {})[p.id] === 'mafia');
+  const mafiaDone = aliveMafia.filter((p) => (r.mafiaVotes || {})[p.id]).length;
+  const detectiveDone = r.detectiveTarget ? 1 : 0;
+  // Civilians can't see who's mafia, so just show "x/y night actions" generically.
+  const div = document.createElement('div');
+  div.className = 'mafia-progress';
+  // Use the local viewer's perspective: if they're mafia they see exact mafia counts.
+  if (r.myRole === 'mafia') {
+    div.textContent = `Mafia ${mafiaDone}/${aliveMafia.length} · Detective ${detectiveDone}/1`;
+  } else {
+    div.textContent = 'Waiting on night actions…';
+  }
+  return div;
+}
+
+function renderMafiaDay(r) {
+  const wrap = document.createElement('div');
+  wrap.className = 'mafia-day';
+
+  // Last night announcement
+  if (r.lastNightKill) {
+    const target = (r.players || []).find((p) => p.id === r.lastNightKill.targetId);
+    const banner = document.createElement('div');
+    banner.className = 'mafia-day-killed';
+    banner.innerHTML = `<strong>${target ? target.name : '?'}</strong> was killed in the night — they were a <strong class="is-color-mafia">${r.lastNightKill.role}</strong>.`;
+    wrap.appendChild(banner);
+  }
+
+  // "Town just voted" banner — only shows during the pause after a
+  // vote resolves (server holds for ~3.5s before flipping to night).
+  // Detected by looking for a day elimination matching the current
+  // round, or by all-alive having voted with no resulting eliminate.
+  const todayDayElim = (r.eliminations || []).find((e) => e.phase === 'day' && e.round === r.round);
+  const allVoted = mafiaAllAliveDayVoted(r);
+  if (todayDayElim) {
+    const target = (r.players || []).find((p) => p.id === todayDayElim.targetId);
+    const note = document.createElement('div');
+    note.className = 'mafia-day-resolved';
+    note.innerHTML = `Town voted: <strong>${target ? target.name : '?'}</strong> was eliminated — they were a <strong class="is-role-${todayDayElim.role}">${todayDayElim.role.toUpperCase()}</strong>.`;
+    wrap.appendChild(note);
+  } else if (allVoted) {
+    const note = document.createElement('div');
+    note.className = 'mafia-day-resolved';
+    note.textContent = 'No consensus — no one was eliminated.';
+    wrap.appendChild(note);
+  }
+
+  // Vote section (alive players only)
+  const isAlive = (r.alive || {})[state.playerId];
+  const role = r.myRole;
+  const isSpectator = state.role === 'spectator' || !role || !isAlive;
+
+  const card = document.createElement('div');
+  card.className = 'mafia-card';
+  if (!isSpectator) {
+    card.appendChild(headingEl('Vote to eliminate'));
+    const sub = document.createElement('p');
+    sub.className = 'mafia-card-sub';
+    sub.textContent = 'Discuss on voice. When everyone has voted, the most-voted player is eliminated. Tie → no elimination.';
+    card.appendChild(sub);
+
+    const myVote = (r.dayVotes || {})[state.playerId];
+    const list = document.createElement('div');
+    list.className = 'mafia-vote-list';
+    const targets = (r.players || []).filter((p) => (r.alive || {})[p.id] && p.id !== state.playerId);
+    for (const p of targets) {
+      const btn = mafiaVoteButton(p, myVote === p.id, r.dayVotes || {});
+      btn.addEventListener('click', () => {
+        send({ type: 'game_action', action: { kind: 'day_vote', targetId: p.id } });
+      });
+      list.appendChild(btn);
+    }
+    // Skip option
+    const skip = document.createElement('button');
+    skip.type = 'button';
+    skip.className = 'mafia-vote-btn mafia-vote-skip' + (myVote === 'skip' ? ' is-mine' : '');
+    skip.innerHTML = '<span class="mafia-vote-name">Skip</span>';
+    skip.addEventListener('click', () => {
+      send({ type: 'game_action', action: { kind: 'day_vote', targetId: 'skip' } });
+    });
+    list.appendChild(skip);
+    card.appendChild(list);
+  } else {
+    card.appendChild(headingEl('Day votes'));
+    const list = document.createElement('div');
+    list.className = 'mafia-vote-list';
+    const alive = (r.players || []).filter((p) => (r.alive || {})[p.id]);
+    for (const p of alive) {
+      const tally = countVotesFor(r.dayVotes || {}, p.id);
+      const div = document.createElement('div');
+      div.className = 'mafia-vote-btn is-static' + (tally > 0 ? ' has-votes' : '');
+      div.innerHTML = `<span class="mafia-vote-name">${p.name}</span><span class="mafia-vote-count">${tally}</span>`;
+      list.appendChild(div);
+    }
+    card.appendChild(list);
+  }
+  wrap.appendChild(card);
+  return wrap;
+}
+
+function mafiaVoteButton(targetPlayer, isMine, voteMap) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'mafia-vote-btn' + (isMine ? ' is-mine' : '');
+  const tally = countVotesFor(voteMap, targetPlayer.id);
+  btn.innerHTML =
+    `<span class="mafia-vote-name">${targetPlayer.name}</span>` +
+    `<span class="mafia-vote-count">${tally}</span>`;
+  return btn;
+}
+
+function countVotesFor(voteMap, targetId) {
+  let n = 0;
+  for (const v of Object.values(voteMap)) if (v === targetId) n++;
+  return n;
+}
+
+function mafiaAllAliveDayVoted(r) {
+  const aliveIds = (r.players || []).filter((p) => (r.alive || {})[p.id]).map((p) => p.id);
+  if (aliveIds.length === 0) return false;
+  const votes = r.dayVotes || {};
+  return aliveIds.every((id) => votes[id] !== undefined);
+}
+
+function renderMafiaPlayers(r) {
+  const list = document.createElement('div');
+  list.className = 'mafia-players';
+  for (const p of r.players || []) {
+    const row = document.createElement('div');
+    row.className = 'mafia-player' + ((r.alive || {})[p.id] ? '' : ' is-out');
+    if (p.id === state.playerId) row.classList.add('is-self');
+
+    const name = document.createElement('span');
+    name.className = 'mafia-player-name';
+    name.textContent = p.name + (p.id === state.playerId ? ' (you)' : '');
+    row.appendChild(name);
+
+    // Show role tag if visible to this viewer (own role / mafia teammate /
+    // eliminated / spectator / finished — server filters this).
+    const visibleRole = (r.visibleRoles || {})[p.id];
+    if (visibleRole) {
+      row.appendChild(roleBadge(visibleRole));
+    } else if (!(r.alive || {})[p.id]) {
+      const tag = document.createElement('span');
+      tag.className = 'mafia-role-badge is-out';
+      tag.textContent = 'OUT';
+      row.appendChild(tag);
+    }
+    list.appendChild(row);
+  }
+  return list;
+}
+
+function textCard(title, sub) {
+  const card = document.createElement('div');
+  card.className = 'mafia-card mafia-card-quiet';
+  card.appendChild(headingEl(title));
+  if (sub) {
+    const p = document.createElement('p');
+    p.className = 'mafia-card-sub';
+    p.textContent = sub;
+    card.appendChild(p);
+  }
+  return card;
+}
+
+function headingEl(text) {
+  const h = document.createElement('h3');
+  h.className = 'mafia-card-heading';
+  h.textContent = text;
+  return h;
+}
+
 // Renders a winning-line SVG sized to the board's actual pixel
 // dimensions. Coordinates are read via getBoundingClientRect so the
 // line lands exactly on cell centers regardless of board size, gap,
@@ -871,7 +1299,23 @@ function renderGameOver() {
 
   const title = $('gameover-title');
   const sub = $('gameover-sub');
-  if (r.result && r.result.kind === 'win') {
+  const scores = $('gameover-scores');
+  scores.innerHTML = '';
+
+  if (r.gameType === 'mafia' && r.result && r.result.kind === 'win') {
+    // Mafia: winner is a *side*, not a person. Show side + roles.
+    const side = r.result.winner;
+    const onWinningSide = side === 'mafia'
+      ? r.myRole === 'mafia'
+      : r.myRole && r.myRole !== 'mafia';
+    title.textContent = side === 'mafia' ? 'Mafia win' : 'Civilians win';
+    if (state.role === 'spectator' || !r.myRole) {
+      sub.textContent = side === 'mafia' ? 'The town fell.' : 'The town held.';
+    } else {
+      sub.textContent = onWinningSide ? 'Your side won.' : 'Your side lost.';
+    }
+    scores.appendChild(renderMafiaRolesReveal(r));
+  } else if (r.result && r.result.kind === 'win') {
     const winner = (r.players || []).find((p) => p.id === r.result.winnerId);
     if (winner) {
       const isYou = winner.id === state.playerId;
@@ -881,19 +1325,34 @@ function renderGameOver() {
       title.textContent = 'Winner';
       sub.textContent = '';
     }
+    renderScoreboard(scores, r);
   } else if (r.result && r.result.kind === 'draw') {
     title.textContent = 'Draw';
     sub.textContent = 'Even game.';
+    renderScoreboard(scores, r);
   } else {
     title.textContent = 'Game over';
     sub.textContent = '';
+    renderScoreboard(scores, r);
   }
-
-  renderScoreboard($('gameover-scores'), r);
 
   const isHost = r.hostId === state.playerId;
   $('play-again-btn').classList.toggle('hidden', !isHost || state.role === 'spectator');
   $('play-again-waiting').classList.toggle('hidden', isHost && state.role !== 'spectator');
+}
+
+function renderMafiaRolesReveal(r) {
+  const wrap = document.createElement('div');
+  wrap.className = 'mafia-roles-reveal';
+  for (const p of r.players || []) {
+    const role = (r.visibleRoles || {})[p.id] || '?';
+    const row = document.createElement('div');
+    row.className = `mafia-roles-row is-role-${role}`;
+    row.innerHTML = `<span class="mafia-roles-name">${p.name}</span>` +
+      `<span class="mafia-role-badge is-role-${role}">${role.toUpperCase()}</span>`;
+    wrap.appendChild(row);
+  }
+  return wrap;
 }
 
 /* ─── Picker ───────────────────────────────────────────────────── */
