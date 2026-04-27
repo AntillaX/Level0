@@ -1,6 +1,7 @@
 const TicTacToe = require('./TicTacToe');
 const FourInARow = require('./FourInARow');
 const DotsAndBoxes = require('./DotsAndBoxes');
+const Mafia = require('./Mafia');
 
 // Registry of game types. `available: false` keeps a tile visible in
 // the picker but disabled — useful for "coming soon" before we ship a
@@ -33,6 +34,18 @@ const GAMES = {
     maxPlayers: 2,
     available: true,
     GameClass: DotsAndBoxes,
+  },
+  mafia: {
+    type: 'mafia',
+    name: 'Mafia',
+    tagline: 'Hidden roles. Discuss, accuse, vote.',
+    minPlayers: 5,
+    maxPlayers: 10,
+    available: true,
+    // No bots — Mafia is fundamentally a social game. Bots can't bluff
+    // or read tells, so a bot-filled Mafia game would be broken.
+    noBots: true,
+    GameClass: Mafia,
   },
 };
 

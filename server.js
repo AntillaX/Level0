@@ -249,6 +249,10 @@ function handleMessage(ws, msg) {
         ws.send(JSON.stringify({ type: 'error', message: 'Only the host can add a bot' }));
         return;
       }
+      if (room.gameMeta && room.gameMeta.noBots) {
+        ws.send(JSON.stringify({ type: 'error', message: `${room.gameMeta.name} doesn't support bots` }));
+        return;
+      }
       const result = room.addBot();
       if (!result.success) {
         ws.send(JSON.stringify({ type: 'error', message: result.error }));
