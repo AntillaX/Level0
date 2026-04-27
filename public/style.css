@@ -752,8 +752,84 @@ body {
   to   { filter: brightness(1.22); }
 }
 
+/* ─── Dots & Boxes ───────────────────────────────────────────────
+   The board is a single SVG with viewBox 0..N (with PAD on each
+   side). All positioning is in unit coordinates (one box = 1 unit)
+   so every visual scales cleanly with the SVG width. */
+.db-board {
+  width: min(92vw, 460px);
+  /* SVG viewBox is square (N + 2*PAD wide), so the rendered SVG is
+     also square — preserveAspectRatio: xMidYMid meet keeps it that
+     way without us having to fix a height. */
+  display: block;
+  margin: 0 auto;
+}
+.db-panel {
+  fill: #1d1a13;
+  stroke: rgba(212, 168, 67, 0.18);
+  stroke-width: 0.02;
+}
+
+/* Dots — small bright pips at each grid intersection. */
+.db-dot {
+  fill: var(--text-secondary);
+}
+
+/* Drawn line: the colored ink the player just laid down. The
+   .is-last class on the most recent line gets a pulsing glow so
+   you can see what your opponent did between turns. */
+.db-line {
+  stroke: var(--accent);
+  stroke-width: 0.09;
+  stroke-linecap: round;
+  pointer-events: none;
+  filter: drop-shadow(0 0.005px 0.01px rgba(0, 0, 0, 0.3));
+}
+.db-line.is-color-a { stroke: var(--fr-color-a); }
+.db-line.is-color-b { stroke: var(--fr-color-b); }
+.db-line.is-last {
+  animation: db-line-in 0.32s ease-out;
+}
+@keyframes db-line-in {
+  from { stroke-dasharray: 0 1.2; stroke-dashoffset: 0; opacity: 0.5; }
+  to   { stroke-dasharray: 1.2 0; opacity: 1; }
+}
+
+/* Filled boxes (claimed). Stamped with a soft fill in the owner's
+   color and a tiny pop animation when first claimed. */
+.db-box {
+  fill: transparent;
+  transition: fill 0.18s ease-out;
+}
+.db-box.is-claimed {
+  animation: db-box-pop 0.45s cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+.db-box.is-claimed.is-color-a { fill: rgba(212, 168, 67, 0.35); }
+.db-box.is-claimed.is-color-b { fill: rgba(200, 122, 106, 0.35); }
+@keyframes db-box-pop {
+  0%   { transform: scale(0.6); transform-origin: center; opacity: 0; }
+  100% { transform: scale(1);   transform-origin: center; opacity: 1; }
+}
+
+/* Hit area for an undrawn line. Invisible by default; shows a faint
+   preview in the local player's colour on hover so you can see what
+   you're about to play. The .is-color-* class is the local player's
+   mark, set in renderDotsAndBoxes. */
+.db-hit {
+  fill: transparent;
+  cursor: pointer;
+  transition: fill var(--t-fast);
+}
+.db-hit.is-color-a:hover { fill: rgba(212, 168, 67, 0.22); }
+.db-hit.is-color-b:hover { fill: rgba(200, 122, 106, 0.22); }
+.db-hit:focus-visible {
+  outline: none;
+  fill: rgba(255, 255, 255, 0.06);
+}
+
 /* Score-card disc — a small filled circle in the player's color.
-   Replaces the plain X/O letter the TTT scoreboard uses. */
+   Replaces the plain X/O letter the TTT scoreboard uses. Shared
+   between Four in a Row and Dots & Boxes. */
 .score-card-mark.fr-disc {
   display: inline-block;
   width: 0.85em;

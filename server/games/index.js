@@ -1,5 +1,6 @@
 const TicTacToe = require('./TicTacToe');
 const FourInARow = require('./FourInARow');
+const DotsAndBoxes = require('./DotsAndBoxes');
 
 // Registry of game types. `available: false` keeps a tile visible in
 // the picker but disabled — useful for "coming soon" before we ship a
@@ -23,6 +24,15 @@ const GAMES = {
     maxPlayers: 2,
     available: true,
     GameClass: FourInARow,
+  },
+  dotsandboxes: {
+    type: 'dotsandboxes',
+    name: 'Dots & Boxes',
+    tagline: 'Close more squares than your opponent.',
+    minPlayers: 2,
+    maxPlayers: 2,
+    available: true,
+    GameClass: DotsAndBoxes,
   },
 };
 
