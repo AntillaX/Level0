@@ -315,7 +315,12 @@ class Room {
   getFullState(viewerId) {
     const state = this.getState();
     if (this.game) {
-      Object.assign(state, this.game.getFullState(viewerId));
+      // Pass through the real occupant when we have one — Mafia
+      // uses it to determine whether the viewer is a spectator
+      // (and therefore sees the omniscient view). Other games
+      // ignore the second arg.
+      const occ = this.occupants.get(viewerId);
+      Object.assign(state, this.game.getFullState(viewerId, occ));
     }
     return state;
   }

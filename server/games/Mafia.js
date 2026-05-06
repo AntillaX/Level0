@@ -76,6 +76,9 @@ class Mafia {
     this.lastNightKill = null;             // { targetId, role } shown on day
 
     this.dayVotes = {};                    // { voterId: targetId | 'skip' }
+    this.dayResolving = false;             // true during the 3.5s pause
+                                           // after a vote resolves, blocks
+                                           // re-resolution from late changes
 
     this.status = 'playing';
     this.result = null;
@@ -90,6 +93,7 @@ class Mafia {
     this.detectiveResult = null;
     this.lastNightKill = null;
     this.dayVotes = {};
+    this.dayResolving = false;
     this.revealed = new Set();
     this.status = 'playing';
     this.result = null;
@@ -198,6 +202,10 @@ class Mafia {
 
   actDayVote(playerId, targetId) {
     if (this.phase !== 'day') return { success: false, error: 'Not day' };
+    // Once the vote has resolved and we're in the brief pause before
+    // night, votes are locked — otherwise a late change could
+    // re-trigger maybeResolveDay and re-eliminate someone.
+    if (this.dayResolving) return { success: false, error: 'Vote already resolved' };
     if (!this.alive[playerId]) return { success: false, error: 'Eliminated players cannot vote' };
     if (targetId !== 'skip') {
       if (!this.alive[targetId] || targetId === playerId) {
@@ -205,8 +213,8 @@ class Mafia {
       }
     }
     this.dayVotes[playerId] = targetId;
+    this.broadcastState({ kind: 'day_voted' });
     this.maybeResolveDay();
-    if (this.phase === 'day') this.broadcastState({ kind: 'day_voted' });
     return { success: true };
   }
 
@@ -218,7 +226,10 @@ class Mafia {
     this.detectiveTarget = null;
     // detectiveResult is intentionally NOT cleared here — the
     // detective remembers their last investigation across phases
-    // until they make a new one. (Cleared at game start.)
+    // until they make a new one. The client decides whether to show
+    // the result or the investigate UI based on the result's
+    // .round vs the current round.
+    this.dayResolving = false;
     this.broadcastState({ kind: 'night_started' });
   }
 
@@ -257,9 +268,11 @@ class Mafia {
   }
 
   maybeResolveDay() {
+    if (this.dayResolving) return;
     const alive = this.aliveIds();
     const allVoted = alive.every((id) => this.dayVotes[id] !== undefined);
     if (!allVoted) return;
+    this.dayResolving = true;
 
     // Tally non-skip votes.
     const tally = {};
@@ -385,9 +398,12 @@ class Mafia {
       myRole: this.roles[occ.id] || null,
     };
 
-    // Visible roles map: which players' roles this viewer is
-    // allowed to see. Always sees own; mafia see mafia teammates;
-    // eliminated/spectators/finished → see all.
+    // Visible roles map. Rules:
+    //   - You always see your own role.
+    //   - Mafia see their teammates.
+    //   - Dead players' roles are public — death reveals the role.
+    //   - Eliminated viewers, spectators, or any viewer once the
+    //     game has finished, see everyone's role.
     const visibleRoles = {};
     if (showAll) {
       Object.assign(visibleRoles, this.roles);
@@ -397,6 +413,9 @@ class Mafia {
         for (const id of this.order) {
           if (this.roles[id] === 'mafia') visibleRoles[id] = 'mafia';
         }
+      }
+      for (const id of this.order) {
+        if (!this.alive[id] && this.roles[id]) visibleRoles[id] = this.roles[id];
       }
     }
     view.visibleRoles = visibleRoles;
@@ -427,10 +446,14 @@ class Mafia {
   }
 
   // For Room.getFullState(viewerId) on reconnect / spectator join.
-  getFullState(viewerId) {
-    const occ = { id: viewerId, isSpectator: false };
-    // Heuristic: if viewerId isn't in our players, treat as spectator.
-    if (!this.roles[viewerId]) occ.isSpectator = true;
+  // Room passes in the real occupant when it knows it; we fall back
+  // to a synthetic one (treating roleless viewers as spectators) for
+  // backwards compatibility with the older single-arg signature.
+  getFullState(viewerId, occupant) {
+    const occ = occupant || {
+      id: viewerId,
+      isSpectator: !this.roles[viewerId],
+    };
     return this.viewFor(occ);
   }
 

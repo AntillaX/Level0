@@ -22,6 +22,12 @@ const state = {
   // Last known wins map so we can detect changes and pulse the
   // score card belonging to whoever just won.
   lastWins: null,
+
+  // Mafia-only: tracks whether the local user has tapped their
+  // reveal card. We need this in addition to the server's revealed[]
+  // list so re-renders triggered by other players' acks don't
+  // un-flip the card during the round-trip.
+  mafiaLocallyRevealed: false,
 };
 
 const SCREENS = ['landing', 'room', 'game', 'gameover'];
@@ -216,6 +222,10 @@ function handleServerMessage(msg) {
     }
 
     case 'game_started': {
+      // Fresh round → clear any per-round local flags. (Mafia's
+      // local-reveal flag would otherwise carry over from the last
+      // game and skip the role-flip animation.)
+      state.mafiaLocallyRevealed = false;
       mergeRoomState(msg);
       renderForState();
       track('level0_game_start', { game: msg.gameType });
@@ -252,6 +262,7 @@ function handleServerMessage(msg) {
       state.roomCode = null;
       state.role = null;
       state.room = null;
+      state.mafiaLocallyRevealed = false;
       clearSession();
       showScreen('landing');
       break;
@@ -445,7 +456,15 @@ function renderGame() {
     return;
   }
   renderer(stage, r);
-  renderScoreboard($('scoreboard'), r);
+  // Mafia has its own players list (with role badges + alive state)
+  // baked into the renderer — the generic mark/wins scoreboard at
+  // the bottom is empty for it, so skip the render entirely.
+  const scoreboardEl = $('scoreboard');
+  if (r.gameType === 'mafia') {
+    scoreboardEl.innerHTML = '';
+  } else {
+    renderScoreboard(scoreboardEl, r);
+  }
 }
 
 /* ─── Render: Tic-Tac-Toe ──────────────────────────────────────── */
@@ -835,7 +854,13 @@ function renderMafiaReveal(r) {
 
   const me = (r.players || []).find((p) => p.id === state.playerId);
   const role = r.myRole;
-  const acked = (r.revealed || []).includes(state.playerId);
+  // Local + server-confirmed ack. Without the local flag, an
+  // incoming state update from another player's ack causes a
+  // re-render that builds a fresh card without is-flipped — so a
+  // card the user just tapped briefly un-flips before the server
+  // round-trip lands.
+  const serverAcked = (r.revealed || []).includes(state.playerId);
+  const acked = serverAcked || state.mafiaLocallyRevealed;
 
   // Spectators don't get a role to flip — show a status card instead.
   if (state.role === 'spectator' || !role) {
@@ -874,6 +899,7 @@ function renderMafiaReveal(r) {
   const handler = () => {
     if (card.classList.contains('is-flipped')) return;
     card.classList.add('is-flipped');
+    state.mafiaLocallyRevealed = true;
     // Server tracks the ack — flip locally first for snappy feel,
     // then notify the server so the count progresses.
     send({ type: 'game_action', action: { kind: 'reveal_ack' } });
@@ -964,12 +990,16 @@ function renderNightDetective(r) {
   card.className = 'mafia-card';
   card.appendChild(headingEl('Investigate someone'));
 
+  // Show the result card only if it's from the *current* round —
+  // otherwise the detective would be stuck on round 1's result and
+  // unable to investigate again in round 2+.
   const result = r.detectiveResult;
-  if (result) {
+  if (result && result.round === r.round) {
     const target = (r.players || []).find((p) => p.id === result.targetId);
     const verdict = document.createElement('p');
     verdict.className = 'mafia-detective-result';
-    verdict.innerHTML = `<strong>${target ? target.name : '?'}</strong> is <strong class="${result.isMafia ? 'is-color-mafia' : 'accent'}">${result.isMafia ? 'Mafia' : 'NOT Mafia'}</strong>.`;
+    verdict.innerHTML = `<strong>${target ? target.name : '?'}</strong> is <strong class="${result.isMafia ? 'is-color-mafia' : 'accent'}">${result.isMafia ? 'Mafia' : 'NOT Mafia'}</strong>` +
+      `<span class="dim"> · round ${result.round}</span>.`;
     card.appendChild(verdict);
     return card;
   }
@@ -1021,7 +1051,7 @@ function renderNightSpectator(r) {
     card.appendChild(list);
   }
 
-  if (r.detectiveResult) {
+  if (r.detectiveResult && r.detectiveResult.round === r.round) {
     const det = document.createElement('p');
     det.className = 'mafia-card-sub';
     const target = (r.players || []).find((p) => p.id === r.detectiveResult.targetId);
@@ -1032,16 +1062,17 @@ function renderNightSpectator(r) {
 }
 
 function nightProgress(r) {
-  // How many of the required night actions are done?
-  const aliveMafia = (r.players || []).filter((p) => (r.alive || {})[p.id] && (r.visibleRoles || {})[p.id] === 'mafia');
-  const mafiaDone = aliveMafia.filter((p) => (r.mafiaVotes || {})[p.id]).length;
-  const detectiveDone = r.detectiveTarget ? 1 : 0;
-  // Civilians can't see who's mafia, so just show "x/y night actions" generically.
   const div = document.createElement('div');
   div.className = 'mafia-progress';
-  // Use the local viewer's perspective: if they're mafia they see exact mafia counts.
+  // Mafia see only their own coordination — telling them whether
+  // the detective has acted leaks info they shouldn't have.
+  // Civilians and detective just see a generic "waiting" line.
   if (r.myRole === 'mafia') {
-    div.textContent = `Mafia ${mafiaDone}/${aliveMafia.length} · Detective ${detectiveDone}/1`;
+    const aliveMafia = (r.players || []).filter(
+      (p) => (r.alive || {})[p.id] && (r.visibleRoles || {})[p.id] === 'mafia'
+    );
+    const mafiaDone = aliveMafia.filter((p) => (r.mafiaVotes || {})[p.id]).length;
+    div.textContent = `Mafia votes: ${mafiaDone}/${aliveMafia.length}`;
   } else {
     div.textContent = 'Waiting on night actions…';
   }
