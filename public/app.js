@@ -226,6 +226,13 @@ function handleServerMessage(msg) {
       // local-reveal flag would otherwise carry over from the last
       // game and skip the role-flip animation.)
       state.mafiaLocallyRevealed = false;
+      // Replace state.room rather than merging — game_started is a
+      // full snapshot, and we want stale per-round fields from the
+      // previous game (Mafia's detectiveResult, lastNightKill,
+      // dayVotes, etc.) to drop. mergeRoomState only writes keys
+      // present in `msg`, so a stale field that the new game omits
+      // would otherwise persist.
+      state.room = {};
       mergeRoomState(msg);
       renderForState();
       track('level0_game_start', { game: msg.gameType });
@@ -1153,9 +1160,13 @@ function renderMafiaDay(r) {
     const alive = (r.players || []).filter((p) => (r.alive || {})[p.id]);
     for (const p of alive) {
       const tally = countVotesFor(r.dayVotes || {}, p.id);
+      const top = mafiaTopVoteCount(r.dayVotes || {});
       const div = document.createElement('div');
-      div.className = 'mafia-vote-btn is-static' + (tally > 0 ? ' has-votes' : '');
-      div.innerHTML = `<span class="mafia-vote-name">${p.name}</span><span class="mafia-vote-count">${tally}</span>`;
+      div.className = 'mafia-vote-btn is-static';
+      const countCls = 'mafia-vote-count'
+        + (tally > 0 ? ' has-votes' : '')
+        + (tally > 0 && tally === top ? ' is-leader' : '');
+      div.innerHTML = `<span class="mafia-vote-name">${p.name}</span><span class="${countCls}">${tally}</span>`;
       list.appendChild(div);
     }
     card.appendChild(list);
@@ -1169,10 +1180,25 @@ function mafiaVoteButton(targetPlayer, isMine, voteMap) {
   btn.type = 'button';
   btn.className = 'mafia-vote-btn' + (isMine ? ' is-mine' : '');
   const tally = countVotesFor(voteMap, targetPlayer.id);
+  const top = mafiaTopVoteCount(voteMap);
+  const countCls = 'mafia-vote-count'
+    + (tally > 0 ? ' has-votes' : '')
+    + (tally > 0 && tally === top ? ' is-leader' : '');
   btn.innerHTML =
     `<span class="mafia-vote-name">${targetPlayer.name}</span>` +
-    `<span class="mafia-vote-count">${tally}</span>`;
+    `<span class="${countCls}">${tally}</span>`;
   return btn;
+}
+
+function mafiaTopVoteCount(voteMap) {
+  let top = 0;
+  const counts = {};
+  for (const v of Object.values(voteMap)) {
+    if (v === 'skip' || v === undefined) continue;
+    counts[v] = (counts[v] || 0) + 1;
+    if (counts[v] > top) top = counts[v];
+  }
+  return top;
 }
 
 function countVotesFor(voteMap, targetId) {
@@ -1201,10 +1227,17 @@ function renderMafiaPlayers(r) {
     name.textContent = p.name + (p.id === state.playerId ? ' (you)' : '');
     row.appendChild(name);
 
-    // Show role tag if visible to this viewer (own role / mafia teammate /
-    // eliminated / spectator / finished — server filters this).
+    // Show role tag if visible to this viewer (own role / mafia
+    // teammate / eliminated / spectator / finished — server filters
+    // this). Special case for the reveal phase: hide your *own* role
+    // badge until you've tapped the card. Otherwise the role is
+    // spoiled in the players list before the reveal animation runs.
     const visibleRole = (r.visibleRoles || {})[p.id];
-    if (visibleRole) {
+    const hideOwnDuringReveal =
+      r.phase === 'reveal' &&
+      p.id === state.playerId &&
+      !state.mafiaLocallyRevealed;
+    if (visibleRole && !hideOwnDuringReveal) {
       row.appendChild(roleBadge(visibleRole));
     } else if (!(r.alive || {})[p.id]) {
       const tag = document.createElement('span');
@@ -1476,13 +1509,13 @@ function init() {
   });
   $('gameover-leave-btn').addEventListener('click', () => send({ type: 'leave_room' }));
 
-  $('room-copy-btn').addEventListener('click', () => {
+  // Tap the code itself to copy — just the 4-letter code, no URL or
+  // pre-canned message. Matches Auction's behaviour.
+  $('room-code').addEventListener('click', () => {
     const code = state.room && state.room.roomCode;
     if (!code) return;
-    const url = `${location.origin}${location.pathname}`.replace(/\/$/, '') + '/';
-    const text = `Join my Level 0 game: ${url} — code ${code}`;
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(() => toast('Copied invite'));
+      navigator.clipboard.writeText(code).then(() => toast(`Copied ${code}`));
     } else {
       toast(`Code: ${code}`);
     }
