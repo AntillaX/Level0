@@ -94,6 +94,8 @@ class Mafia {
     this.lastNightKill = null;
     this.dayVotes = {};
     this.dayResolving = false;
+    this.gameEnding = false;
+    this.endGameTimer = null;
     this.revealed = new Set();
     this.status = 'playing';
     this.result = null;
@@ -162,6 +164,7 @@ class Mafia {
 
   actMafiaVote(playerId, targetId) {
     if (this.phase !== 'night') return { success: false, error: 'Not night' };
+    if (this.gameEnding) return { success: false, error: 'Game is ending' };
     if (!this.alive[playerId] || !this.isMafia(playerId)) {
       return { success: false, error: 'Only living mafia may vote at night' };
     }
@@ -179,6 +182,7 @@ class Mafia {
 
   actInvestigate(playerId, targetId) {
     if (this.phase !== 'night') return { success: false, error: 'Not night' };
+    if (this.gameEnding) return { success: false, error: 'Game is ending' };
     if (!this.alive[playerId] || !this.isDetective(playerId)) {
       return { success: false, error: 'Only the living detective may investigate' };
     }
@@ -204,8 +208,10 @@ class Mafia {
     if (this.phase !== 'day') return { success: false, error: 'Not day' };
     // Once the vote has resolved and we're in the brief pause before
     // night, votes are locked — otherwise a late change could
-    // re-trigger maybeResolveDay and re-eliminate someone.
+    // re-trigger maybeResolveDay and re-eliminate someone. Same for
+    // the post-resolve pause when the game is about to end.
     if (this.dayResolving) return { success: false, error: 'Vote already resolved' };
+    if (this.gameEnding) return { success: false, error: 'Game is ending' };
     if (!this.alive[playerId]) return { success: false, error: 'Eliminated players cannot vote' };
     if (targetId !== 'skip') {
       if (!this.alive[targetId] || targetId === playerId) {
@@ -257,8 +263,13 @@ class Mafia {
       targetId: killId, role: this.roles[killId], by: 'mafia',
     });
 
-    if (this.checkWinAndEnd()) return;
+    // Always transition to day so the kill is announced — even if a
+    // win has just been triggered. The day phase shows
+    // "X was killed last night — they were a [role]". scheduleEndGame
+    // gives the table a beat to read it before flipping to gameover.
     this.startDay();
+    const winner = this.checkWin();
+    if (winner) this.scheduleEndGame(winner);
   }
 
   startDay() {
@@ -303,7 +314,14 @@ class Mafia {
     // for the duration of this day phase before we flip to night.
     this.broadcastState({ kind: 'day_resolved' });
 
-    if (this.checkWinAndEnd()) return;
+    const winner = this.checkWin();
+    if (winner) {
+      // Hold on the day_resolved banner, then end. (Without the pause,
+      // clients only see the banner for ~400ms before the gameover
+      // screen replaces it — too fast to follow.)
+      this.scheduleEndGame(winner);
+      return;
+    }
 
     // Delay before the next night so the table has time to absorb
     // the elimination on screen. (Cleared if the room is destroyed
@@ -316,20 +334,43 @@ class Mafia {
     }, 3500);
   }
 
-  checkWinAndEnd() {
+  // Returns 'civilians' | 'mafia' | null — pure check, no side effects.
+  checkWin() {
     const aliveMafia = this.aliveByRole('mafia').length;
     const aliveOther = this.aliveIds().length - aliveMafia;
-    let winner = null;
-    if (aliveMafia === 0) winner = 'civilians';
-    else if (aliveMafia >= aliveOther) winner = 'mafia';
-    if (!winner) return false;
+    if (aliveMafia === 0) return 'civilians';
+    if (aliveMafia >= aliveOther) return 'mafia';
+    return null;
+  }
 
+  // Schedule the game to end after a 2.5s pause, so clients can see
+  // the last action (day_resolved banner or day_started kill banner)
+  // before transitioning to the gameover screen. While the pause is
+  // running, votes are locked via this.gameEnding so a stray late
+  // input can't double-eliminate or change the outcome.
+  scheduleEndGame(winner) {
+    if (this.endGameTimer) return;
+    this.gameEnding = true;
+    this.endGameTimer = setTimeout(() => {
+      this.endGameTimer = null;
+      this.endGame(winner);
+    }, 2500);
+  }
+
+  endGame(winner) {
+    if (this.status === 'finished') return;
     this.status = 'finished';
+    // Crucial: setting this.phase ='finished' (not just status) is
+    // what makes viewFor's showAll branch fire for *every* viewer,
+    // so visibleRoles contains all roles in the gameover broadcast.
+    // Without this, alive non-spectator players only saw their own
+    // role + mafia teammates + dead players — the rest displayed
+    // as "?" on the gameover screen.
+    this.phase = 'finished';
     this.result = { kind: 'win', winner };
 
     // Increment the cross-round win tally for everyone on the winning
     // side. Useful so a single Room can rotate roles across rounds.
-    const winningRole = winner === 'mafia' ? 'mafia' : null; // 'civilians' = everyone-not-mafia
     for (const id of this.order) {
       const onWinningSide = winner === 'mafia'
         ? this.roles[id] === 'mafia'
@@ -339,7 +380,6 @@ class Mafia {
 
     this.broadcastState({ kind: 'game_over' });
     if (this.onEnd) this.onEnd();
-    return true;
   }
 
   // ── State broadcast ──────────────────────────────────────────────
@@ -461,6 +501,10 @@ class Mafia {
     if (this.dayResolveTimer) {
       clearTimeout(this.dayResolveTimer);
       this.dayResolveTimer = null;
+    }
+    if (this.endGameTimer) {
+      clearTimeout(this.endGameTimer);
+      this.endGameTimer = null;
     }
   }
 }

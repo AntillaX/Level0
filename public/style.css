@@ -385,21 +385,31 @@ body {
 
 /* ─── Room ──────────────────────────────────────────────────────── */
 
-.room-code-row {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 0.75rem;
-  margin: 0.5rem 0 0.4rem;
-}
+/* Room code is itself a tap-to-copy button. Style it so it looks
+   like a clickable label rather than a generic button — matches the
+   pattern Auction uses (no separate "Copy" button). */
 .room-code {
+  display: block;
+  margin: 0.5rem auto 0.4rem;
+  padding: 0.4rem 0.4rem 0.4rem 0.8em;
+  background: transparent;
+  border: none;
+  font-family: inherit;
   font-size: 2rem;
   letter-spacing: 0.4em;
   color: var(--accent);
   text-shadow: 0 0 24px var(--accent-glow);
   font-weight: 700;
-  padding-left: 0.4em;
+  cursor: pointer;
+  border-radius: var(--radius);
+  transition: text-shadow var(--t-fast), transform var(--t-fast);
 }
+.room-code:hover, .room-code:focus-visible {
+  outline: none;
+  text-shadow: 0 0 32px var(--accent-glow);
+  transform: scale(1.02);
+}
+.room-code:active { transform: scale(0.99); }
 
 .people {
   margin: 1.25rem 0 1.5rem;
@@ -1019,14 +1029,34 @@ body {
   opacity: 0.85;
 }
 .mafia-vote-name { font-weight: 500; }
+/* Vote counts get prominent so the running tally is the loudest
+   thing on the row. Zero-counts stay quiet; once anyone votes for
+   that target the chip lights up in the accent. The leader (most
+   votes for any single target) gets an extra bold treatment via
+   .is-leader added by the renderer. */
 .mafia-vote-count {
-  font-size: 0.78rem;
-  color: var(--text-secondary);
-  letter-spacing: 0.08em;
+  min-width: 1.6em;
+  text-align: center;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
   background: rgba(255, 255, 255, 0.04);
-  padding: 0.1rem 0.5rem;
-  border-radius: 4px;
+  padding: 0.18rem 0.55rem;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+  transition: color var(--t-fast), background var(--t-fast), transform var(--t-fast);
 }
+.mafia-vote-count.has-votes {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.mafia-vote-count.is-leader {
+  color: #1a1200;
+  background: var(--accent);
+  transform: scale(1.05);
+}
+.mafia-vote-btn.is-mine .mafia-vote-name { color: var(--accent); }
 .mafia-vote-skip {
   background: transparent;
   border-style: dashed;
