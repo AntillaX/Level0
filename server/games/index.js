@@ -45,6 +45,11 @@ const GAMES = {
     // No bots — Mafia is fundamentally a social game. Bots can't bluff
     // or read tells, so a bot-filled Mafia game would be broken.
     noBots: true,
+    // Mid-game disconnects don't end the round immediately — the
+    // Room gives the player a 20s grace window to reconnect (a tab
+    // refresh is the common case). After grace, the round abandons
+    // like any other game.
+    handlesDisconnect: true,
     GameClass: Mafia,
   },
 };

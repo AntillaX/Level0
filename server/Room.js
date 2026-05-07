@@ -3,6 +3,7 @@ const { GAMES } = require('./games');
 
 const SPECTATOR_LIMIT = 20;
 const BOT_NAMES = ['Atlas', 'Echo', 'Nova', 'Sage', 'Pixel', 'Onyx'];
+const RECONNECT_GRACE_MS = 20000; // refresh tolerance for handlesDisconnect games
 
 class Room {
   constructor(code, gameType) {
@@ -17,6 +18,10 @@ class Room {
     // call to playAgain() spins up a new Game instance, so this
     // lives at the room level so the running score survives.
     this.persistentWins = {};
+    // For games with handlesDisconnect: per-player grace timers that
+    // give a refreshing player ~20s to reconnect before the round is
+    // abandoned. Cleared on reconnect or when the room is destroyed.
+    this.reconnectGraceTimers = new Map();
   }
 
   // ── helpers ──────────────────────────────────────────────────────
@@ -95,7 +100,35 @@ class Room {
     if (!occ) return { success: false, error: 'You are not in this room' };
     occ.ws = ws;
     occ.connected = true;
+    this.clearReconnectGrace(id);
     return { success: true, role: occ.role };
+  }
+
+  // ── Disconnect grace (for games with handlesDisconnect) ──────────
+
+  startReconnectGrace(playerId, playerName) {
+    const existing = this.reconnectGraceTimers.get(playerId);
+    if (existing) clearTimeout(existing);
+    this.reconnectGraceTimers.set(playerId, setTimeout(() => {
+      this.reconnectGraceTimers.delete(playerId);
+      const occ = this.occupants.get(playerId);
+      if (!occ || occ.connected) return; // they came back
+      // Grace expired without reconnect — abandon as usual.
+      this.endRoundDueToLeave(playerId, playerName);
+    }, RECONNECT_GRACE_MS));
+  }
+
+  clearReconnectGrace(playerId) {
+    const t = this.reconnectGraceTimers.get(playerId);
+    if (t) {
+      clearTimeout(t);
+      this.reconnectGraceTimers.delete(playerId);
+    }
+  }
+
+  clearAllReconnectGraces() {
+    for (const t of this.reconnectGraceTimers.values()) clearTimeout(t);
+    this.reconnectGraceTimers.clear();
   }
 
   // ── leaving ──────────────────────────────────────────────────────
@@ -126,10 +159,23 @@ class Room {
       return;
     }
 
-    // Mid-game player drop: end the round and bounce everyone back to
-    // the lobby. We treat a deliberate Leave and a network drop the
-    // same way — the round can't continue without them, and the
-    // chill thing is to reset cleanly rather than make survivors wait.
+    // Mid-game player drop. By default we abandon — the round
+    // can't continue without them. But games with handlesDisconnect
+    // (Mafia) get a grace window: just mark disconnected, broadcast
+    // it, and start a 20s timer. If they reconnect (a tab refresh
+    // is the common case), we cancel and the game continues; if not,
+    // the timer fires and abandons like normal.
+    if (this.gameMeta && this.gameMeta.handlesDisconnect) {
+      this.broadcast({
+        type: 'player_disconnected',
+        playerId: id,
+        playerName: occ.name,
+        graceMs: RECONNECT_GRACE_MS,
+        ...this.getState(),
+      });
+      this.startReconnectGrace(id, occ.name);
+      return;
+    }
     this.endRoundDueToLeave(id, occ.name);
   }
 
@@ -326,6 +372,7 @@ class Room {
   }
 
   destroy() {
+    this.clearAllReconnectGraces();
     if (this.game && typeof this.game.destroy === 'function') {
       this.game.destroy();
     }
