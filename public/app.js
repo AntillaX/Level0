@@ -837,6 +837,11 @@ function renderMafia(stage, r) {
   else if (r.phase === 'night') wrap.appendChild(renderMafiaNight(r));
   else if (r.phase === 'day') wrap.appendChild(renderMafiaDay(r));
   wrap.appendChild(renderMafiaPlayers(r));
+  // In-game round history accordion. Collapsed by default; appears
+  // once at least one elimination has happened.
+  if ((r.eliminations || []).length > 0) {
+    wrap.appendChild(renderMafiaHistory(r));
+  }
 
   stage.appendChild(wrap);
 }
@@ -1114,6 +1119,26 @@ function renderMafiaDay(r) {
     note.className = 'mafia-day-resolved';
     note.textContent = 'No consensus — no one was eliminated.';
     wrap.appendChild(note);
+  }
+
+  // Detective recap — shows the latest investigation result during
+  // day so the detective can refer back to it during discussion.
+  // Only the detective sees it (server filters detectiveResult to
+  // them). Hidden after they die — there's no point in giving an
+  // eliminated player extra UI.
+  if (r.myRole === 'detective' && (r.alive || {})[state.playerId] && r.detectiveResult) {
+    const target = (r.players || []).find((p) => p.id === r.detectiveResult.targetId);
+    const card = document.createElement('div');
+    card.className = 'mafia-detective-recap';
+    card.innerHTML =
+      `<span class="mafia-detective-recap-label">Your last investigation</span>` +
+      `<span class="mafia-detective-recap-body">` +
+        `<strong>${target ? target.name : '?'}</strong> ` +
+        `is <strong class="${r.detectiveResult.isMafia ? 'is-color-mafia' : 'accent'}">` +
+        `${r.detectiveResult.isMafia ? 'Mafia' : 'NOT Mafia'}</strong>` +
+        `<span class="dim"> · round ${r.detectiveResult.round}</span>` +
+      `</span>`;
+    wrap.appendChild(card);
   }
 
   // Vote section (alive players only)
