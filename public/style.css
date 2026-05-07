@@ -1095,6 +1095,30 @@ body {
   border-color: rgba(212, 168, 67, 0.25);
 }
 
+/* Detective's persistent investigation readout during day, so they
+   can point to it while talking. Detective-blue tint to differentiate
+   from the kill / eliminated banners above. */
+.mafia-detective-recap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.7rem 0.95rem;
+  background: rgba(122, 169, 200, 0.08);
+  border: 1px solid rgba(122, 169, 200, 0.3);
+  border-radius: var(--radius);
+}
+.mafia-detective-recap-label {
+  font-size: 0.65rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(122, 169, 200, 0.9);
+}
+.mafia-detective-recap-body {
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
 /* Players row — running list shown on every screen. Eliminated
    players fade out so the table can see who's left. */
 .mafia-players {
