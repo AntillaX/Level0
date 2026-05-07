@@ -246,15 +246,13 @@ function handleServerMessage(msg) {
     }
 
     case 'game_over': {
-      // game_over arrives just after a game_update that already set
-      // status:'finished', so the board is current. We still merge
-      // the wins map and switch screens — but pause briefly first
-      // so the winning line animation gets to play before we yank
-      // the board off-screen.
-      if (state.room) {
-        state.room.result = msg.result;
-        state.room.wins = msg.wins;
-      }
+      // Merge the full payload — Mafia's game_over carries the
+      // final visibleRoles map (everyone's role revealed) plus the
+      // updated alive/eliminations history that the gameover screen
+      // renders. Without this, players who saw a stale visibleRoles
+      // before the game ended got "?" placeholders for some roles
+      // on the gameover screen.
+      mergeRoomState(msg);
       const isLineWin = msg.result && msg.result.kind === 'win' && msg.result.line;
       setTimeout(goToGameOver, isLineWin ? 1200 : 400);
       track('level0_game_over', {
@@ -1367,7 +1365,8 @@ function renderGameOver() {
   scores.innerHTML = '';
 
   if (r.gameType === 'mafia' && r.result && r.result.kind === 'win') {
-    // Mafia: winner is a *side*, not a person. Show side + roles.
+    // Mafia: winner is a *side*, not a person. Show side + the
+    // event that ended the game + per-round history + roles.
     const side = r.result.winner;
     const onWinningSide = side === 'mafia'
       ? r.myRole === 'mafia'
@@ -1378,7 +1377,13 @@ function renderGameOver() {
     } else {
       sub.textContent = onWinningSide ? 'Your side won.' : 'Your side lost.';
     }
+    // Trigger event — what happened on the final action.
+    const lastElim = (r.eliminations || [])[(r.eliminations || []).length - 1];
+    if (lastElim) scores.appendChild(renderMafiaTriggerEvent(r, lastElim));
     scores.appendChild(renderMafiaRolesReveal(r));
+    if ((r.eliminations || []).length > 0) {
+      scores.appendChild(renderMafiaHistory(r));
+    }
   } else if (r.result && r.result.kind === 'win') {
     const winner = (r.players || []).find((p) => p.id === r.result.winnerId);
     if (winner) {
@@ -1415,6 +1420,57 @@ function renderMafiaRolesReveal(r) {
     row.innerHTML = `<span class="mafia-roles-name">${p.name}</span>` +
       `<span class="mafia-role-badge is-role-${role}">${role.toUpperCase()}</span>`;
     wrap.appendChild(row);
+  }
+  return wrap;
+}
+
+function renderMafiaTriggerEvent(r, lastElim) {
+  const target = (r.players || []).find((p) => p.id === lastElim.targetId);
+  const div = document.createElement('div');
+  div.className = 'mafia-trigger';
+  const name = target ? target.name : '?';
+  const phrase = lastElim.by === 'mafia'
+    ? `<strong>${name}</strong> was killed in the night`
+    : `<strong>${name}</strong> was voted out`;
+  div.innerHTML = `${phrase} — they were a <strong class="is-role-${lastElim.role}">${lastElim.role.toUpperCase()}</strong>.`;
+  return div;
+}
+
+// Per-round summary of what happened — kills + lynchings, in order.
+// Helpful at the gameover screen for "wait who got voted out in
+// round 2 again?" recap.
+function renderMafiaHistory(r) {
+  const wrap = document.createElement('details');
+  wrap.className = 'mafia-history';
+  const summary = document.createElement('summary');
+  summary.className = 'mafia-history-summary';
+  summary.textContent = 'Round-by-round history';
+  wrap.appendChild(summary);
+
+  const byRound = new Map();
+  for (const e of r.eliminations || []) {
+    if (!byRound.has(e.round)) byRound.set(e.round, []);
+    byRound.get(e.round).push(e);
+  }
+  const rounds = [...byRound.keys()].sort((a, b) => a - b);
+  for (const round of rounds) {
+    const block = document.createElement('div');
+    block.className = 'mafia-history-round';
+    const head = document.createElement('div');
+    head.className = 'mafia-history-round-head';
+    head.textContent = `Round ${round}`;
+    block.appendChild(head);
+    for (const e of byRound.get(round)) {
+      const target = (r.players || []).find((p) => p.id === e.targetId);
+      const line = document.createElement('div');
+      line.className = 'mafia-history-line';
+      const phrase = e.phase === 'night'
+        ? `Night: <strong>${target ? target.name : '?'}</strong> was killed by the Mafia`
+        : `Day: <strong>${target ? target.name : '?'}</strong> was voted out`;
+      line.innerHTML = `${phrase} — <span class="mafia-role-badge is-role-${e.role}">${e.role.toUpperCase()}</span>`;
+      block.appendChild(line);
+    }
+    wrap.appendChild(block);
   }
   return wrap;
 }

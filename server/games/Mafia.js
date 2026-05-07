@@ -155,7 +155,16 @@ class Mafia {
     if (!this.roles[playerId]) return { success: false, error: 'You are not in this game' };
     this.revealed.add(playerId);
     if (this.revealed.size >= this.players.length) {
-      this.startNight();
+      // Last player just acked. Don't start night immediately —
+      // they need a beat to actually read their own role on the
+      // freshly flipped card. The progress broadcast still fires
+      // so other clients see "5/5 ready".
+      this.broadcastState({ kind: 'reveal_progress' });
+      if (this.startNightTimer) clearTimeout(this.startNightTimer);
+      this.startNightTimer = setTimeout(() => {
+        this.startNightTimer = null;
+        this.startNight();
+      }, 2500);
     } else {
       this.broadcastState({ kind: 'reveal_progress' });
     }
@@ -505,6 +514,10 @@ class Mafia {
     if (this.endGameTimer) {
       clearTimeout(this.endGameTimer);
       this.endGameTimer = null;
+    }
+    if (this.startNightTimer) {
+      clearTimeout(this.startNightTimer);
+      this.startNightTimer = null;
     }
   }
 }

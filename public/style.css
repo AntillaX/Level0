@@ -1143,6 +1143,66 @@ body {
 .mafia-roles-row.is-role-detective { border-color: rgba(122, 169, 200, 0.35); }
 .mafia-roles-name { font-weight: 500; }
 
+/* Game-over: the event that ended the round (banner above the role
+   reveal). */
+.mafia-trigger {
+  text-align: center;
+  margin: 0 auto 1rem;
+  max-width: 320px;
+  padding: 0.7rem 0.95rem;
+  background: rgba(212, 168, 67, 0.08);
+  border: 1px solid rgba(212, 168, 67, 0.25);
+  border-radius: var(--radius);
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+/* Round-by-round history accordion. Collapsed by default; tap the
+   summary to open. */
+.mafia-history {
+  width: 100%;
+  max-width: 320px;
+  margin: 1.25rem auto 0;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.mafia-history-summary {
+  padding: 0.7rem 0.95rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.mafia-history-summary::-webkit-details-marker { display: none; }
+.mafia-history-summary::after {
+  content: " ▾";
+  color: var(--text-dim);
+}
+.mafia-history[open] .mafia-history-summary::after { content: " ▴"; }
+.mafia-history-round {
+  border-top: 1px solid var(--border);
+  padding: 0.6rem 0.95rem 0.7rem;
+}
+.mafia-history-round-head {
+  font-size: 0.7rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.4rem;
+}
+.mafia-history-line {
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: var(--text-primary);
+  margin: 0.25rem 0;
+}
+
 /* Score-card disc — a small filled circle in the player's color.
    Replaces the plain X/O letter the TTT scoreboard uses. Shared
    between Four in a Row and Dots & Boxes. */
