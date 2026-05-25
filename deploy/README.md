@@ -45,14 +45,15 @@ Click in, create a game, share the 4-letter code with a friend.
 
 ```bash
 cd /opt/level0
-sudo git pull
-sudo npm ci --omit=dev      # only if package-lock changed
-sudo systemctl restart level0
+./deploy/deploy.sh
 ```
 
-If only `public/` changed, restarting isn't strictly required since
-the server serves static assets with `Cache-Control: no-store`, but
-restarting is harmless.
+The script fast-forwards `/opt/level0` to the latest `main`, runs
+`sudo npm ci --omit=dev` only if `package-lock.json` changed in the
+pull, and restarts `level0.service`. If only `public/` changed,
+restarting isn't strictly required since the server serves static
+assets with `Cache-Control: no-store`, but the script restarts
+unconditionally — harmless and keeps the flow predictable.
 
 ## Logs
 
