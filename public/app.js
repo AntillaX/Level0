@@ -565,7 +565,8 @@ function renderFourInARow(stage, r) {
   // Color hint for the hover-preview disc (per-column ::before).
   if (myMark) board.classList.add(myMark === 'A' ? 'is-color-a' : 'is-color-b');
 
-  const winSet = new Set((r.result && r.result.kind === 'win' && r.result.line) || []);
+  const winLine = (r.result && r.result.kind === 'win') ? r.result.line : null;
+  const winSet = new Set(winLine || []);
   const last = r.lastMove;
 
   // Track which columns are full so we can disable hover/click on them.
@@ -632,6 +633,23 @@ function renderFourInARow(stage, r) {
       setHover(cell ? Number(cell.dataset.col) : null);
     });
     board.addEventListener('mouseleave', () => setHover(null));
+  }
+
+  // Cross out the four winning tokens with an SVG line, coloured to
+  // match the winner. The setTimeout in handleServerMessage.game_over
+  // (1200 ms for line wins) keeps the game screen up long enough for
+  // the draw-in to finish before the gameover screen takes over.
+  if (winLine) {
+    const winSvg = buildWinLineSvg(winLine, board, {
+      cellSelector: '.fr-cell',
+      svgClass: 'fr-winline',
+      strokeClass: 'fr-winline-stroke',
+      strokeRatio: 0.028,
+      minStroke: 8,
+    });
+    const winnerMark = r.result && r.result.winnerId && r.marks && r.marks[r.result.winnerId];
+    if (winnerMark) winSvg.classList.add(winnerMark === 'A' ? 'is-color-a' : 'is-color-b');
+    board.appendChild(winSvg);
   }
 
   stage.appendChild(board);
@@ -1300,22 +1318,34 @@ function headingEl(text) {
 // the board padding/gap and produced a too-short, off-center line
 // on wider viewports. We measure inside a rAF so the cells are
 // guaranteed to be laid out.
-function buildWinLineSvg(line, board) {
+//
+// `opts` lets non-TTT boards reuse the same function: pass the cell
+// selector, SVG/stroke class names, and stroke sizing. Defaults match
+// the original TTT call so existing call sites need no change.
+function buildWinLineSvg(line, board, opts = {}) {
+  const cellSelector = opts.cellSelector || '.ttt-cell';
+  const svgClass = opts.svgClass || 'ttt-winline';
+  const strokeClass = opts.strokeClass || 'ttt-winline-stroke';
+  const strokeRatio = opts.strokeRatio || 0.022;
+  const minStroke = opts.minStroke || 7;
+
   const NS = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(NS, 'svg');
-  svg.setAttribute('class', 'ttt-winline');
+  svg.setAttribute('class', svgClass);
   svg.setAttribute('preserveAspectRatio', 'none');
 
   const lineEl = document.createElementNS(NS, 'line');
-  lineEl.setAttribute('class', 'ttt-winline-stroke');
+  lineEl.setAttribute('class', strokeClass);
   svg.appendChild(lineEl);
 
   requestAnimationFrame(() => {
-    const cells = board.querySelectorAll('.ttt-cell');
-    if (cells.length !== 9) return;
+    const cells = board.querySelectorAll(cellSelector);
+    const lastIdx = line[line.length - 1];
+    if (cells.length === 0 || lastIdx >= cells.length) return;
+
     const boardRect = board.getBoundingClientRect();
     const c1 = cells[line[0]].getBoundingClientRect();
-    const c2 = cells[line[2]].getBoundingClientRect();
+    const c2 = cells[lastIdx].getBoundingClientRect();
 
     const x1 = c1.left + c1.width  / 2 - boardRect.left;
     const y1 = c1.top  + c1.height / 2 - boardRect.top;
@@ -1328,7 +1358,7 @@ function buildWinLineSvg(line, board) {
     lineEl.setAttribute('y1', y1);
     lineEl.setAttribute('x2', x2);
     lineEl.setAttribute('y2', y2);
-    lineEl.style.strokeWidth = Math.max(7, boardRect.width * 0.022) + 'px';
+    lineEl.style.strokeWidth = Math.max(minStroke, boardRect.width * strokeRatio) + 'px';
 
     const len = Math.hypot(x2 - x1, y2 - y1);
     lineEl.style.setProperty('--len', len);

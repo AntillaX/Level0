@@ -762,6 +762,35 @@ body {
   to   { filter: brightness(1.22); }
 }
 
+/* Winning line — SVG overlay on top of the board. Mirrors the
+   TTT winline (same `draw-winline` keyframe), but coloured in the
+   winner's token colour so the four-in-a-row run reads at a glance.
+   The stroke is thicker than TTT's (the FIAR tokens are larger
+   relative to the board, so a thin line would look meek). */
+.fr-winline {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+.fr-winline-stroke {
+  stroke: var(--accent);
+  stroke-linecap: round;
+  fill: none;
+  filter: drop-shadow(0 0 8px var(--accent-glow));
+  stroke-dasharray: var(--len, 400);
+  stroke-dashoffset: var(--len, 400);
+  animation: draw-winline 0.6s ease-out forwards;
+}
+.fr-winline.is-color-a .fr-winline-stroke {
+  stroke: var(--fr-color-a);
+  filter: drop-shadow(0 0 10px var(--fr-color-a-glow));
+}
+.fr-winline.is-color-b .fr-winline-stroke {
+  stroke: var(--fr-color-b);
+  filter: drop-shadow(0 0 10px var(--fr-color-b-glow));
+}
+
 /* ─── Dots & Boxes ───────────────────────────────────────────────
    The board is a single SVG with viewBox 0..N (with PAD on each
    side). All positioning is in unit coordinates (one box = 1 unit)
