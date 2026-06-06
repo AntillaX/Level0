@@ -1,1 +1,8 @@
 node_modules/
+dist/
+.DS_Store
+*.log
+.vite/
+
+# Downloaded assets — fetched via `npm run assets`
+public/assets/

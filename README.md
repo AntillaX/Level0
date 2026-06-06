@@ -1,43 +1,109 @@
-# Level 0
+# Level 0 — Waiting Area
 
-Simple, chill multiplayer games for [platformvv.com](https://platformvv.com) —
-tic-tac-toe, four in a row, and more to come. Built to be played while
-hanging out with friends.
-
-One Node + WebSocket server hosts every game. Picking a game is part of
-room creation: each room is locked to a single game type. Spectators can
-join any room and watch live; no bots.
+A small, atmospheric 3D web scene: a fenced patch of ground at late evening
+with a dark gap in the far hedge leading to a maze that hasn't been built
+yet. React Three Fiber + Drei on a Three.js renderer (WebGPU when
+available, WebGL2 otherwise).
 
 ## Stack
 
-- Node 20+, Express, `ws`
-- Vanilla JS / HTML / CSS client (no build step)
-- Rooms live in memory; restarting the server clears them
+- Vite + React 18
+- `@react-three/fiber`, `@react-three/drei`, `three@0.170`
+- WebGPU renderer (`three/webgpu`) with automatic WebGL2 fallback
+- Poly Haven (CC0) for ground PBR, hedge foliage, and evening HDRIs
 
-## Local development
+## Run it
 
 ```bash
 npm install
-npm start
-# open http://localhost:3000 in two browser windows
+npm run assets     # fetches candidate textures + HDRIs from polyhaven.com
+npm run dev        # http://localhost:5173
 ```
 
-`PORT` defaults to `3000` locally and is set to `3200` on the droplet.
+First load before `npm run assets` finishes still renders — materials
+fall back to flat colors, the scene runs without an HDRI.
 
-## Adding a game
+Force a renderer for comparison:
 
-Each game is a class in `server/games/` registered in
-`server/games/index.js`. The class implements:
+- `http://localhost:5173/?renderer=webgl`
+- `http://localhost:5173/?renderer=webgpu`
 
-- `start()`
-- `handleAction(playerId, action)`
-- `handleSpectatorJoin(spectatorId)` (optional)
-- `getFullState(viewerId)` — what a (re)joiner sees
-- `destroy()`
+## Controls
 
-Client-side, add a renderer in `public/games/<name>.js` keyed off
-`gameType` in the room state.
+- Click the canvas to lock the pointer
+- **WASD** / arrows to move
+- Mouse to look
+- **Esc** to release
 
-## Deployment
+Movement is clamped inside the hedge enclosure. The gap in the far wall
+is walkable — keep going and you enter a short dark stub where the maze
+will eventually attach.
 
-See [`deploy/README.md`](deploy/README.md) for the droplet steps.
+## Picking different assets
+
+`scripts/download-assets.mjs` pulls every candidate listed in
+`src/config/assets.js`. To swap what the scene uses, edit `ACTIVE`:
+
+```js
+// src/config/assets.js
+export const ACTIVE = {
+  ground: 'aerial_grass_rock',          // try forrest_ground_01, brown_mud_leaves_01, ...
+  hedge:  'forest_leaves_03',
+  hdri:   'evening_road_01_puresky',    // try venice_sunset, kloppenheim_06_puresky, ...
+}
+```
+
+Add any other Poly Haven slug to `CANDIDATES` in the same file, re-run
+`npm run assets`, and Vite HMR picks it up.
+
+Resolutions are configurable for the download step:
+
+```bash
+TEX_RES=2k HDRI_RES=2k npm run assets
+```
+
+## Layout & tuning
+
+`src/config/scene.js` holds the enclosure dimensions, fog falloff, player
+speed, and start position. Changes are picked up on save.
+
+```
+                    -Z (far)
+       ┌─────────┐ ─┴─ ┌─────────┐    ← hedge, gap in middle
+       │         │     │         │
+   -X  │      [ open ground ]    │  +X
+       │                         │
+       └─────────────────────────┘
+            (open — fades into fog)
+                    +Z
+```
+
+## Project layout
+
+```
+index.html                Vite entry
+src/
+  main.jsx                React mount
+  App.jsx                 Canvas + overlay + lock state
+  Scene.jsx               Lights, fog, environment, scene composition
+  components/
+    Ground.jsx
+    HedgeWalls.jsx        L/R/back walls (back has a centered gap)
+    MazeBeyond.jsx        dark recessed box visible through the gap
+    FPSPlayer.jsx         WASD + collision against the enclosure
+  lib/
+    createRenderer.js     WebGPU → WebGL2 fallback
+    usePBRMaps.js         Optional-map PBR loader (Diffuse/nor_gl/Rough/AO)
+    SafeBoundary.jsx      Swallows render-time errors for optional children
+  config/
+    scene.js              Dimensions, fog, player
+    assets.js             Poly Haven candidates + active selection
+scripts/
+  download-assets.mjs     Poly Haven downloader
+public/
+  assets/                 Downloaded textures + HDRIs (gitignored)
+```
+
+The old `server.js` / `server/` / `deploy/` directories are vestiges
+from the previous (multiplayer tic-tac-toe) scaffold and are not used by
+this scene.
