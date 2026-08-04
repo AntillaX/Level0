@@ -45,6 +45,18 @@
       </div>
     </section>
 
+    <!-- Game options (table size, etc. — only for games that declare them) -->
+    <section id="options-screen" class="screen">
+      <button id="options-back-btn" class="btn-home">&larr; Back</button>
+      <div class="container container-narrow">
+        <p class="eyebrow eyebrow-lg" id="options-game-name"></p>
+        <div id="options-fields" class="options-fields"></div>
+        <div class="room-actions">
+          <button id="options-create-btn" class="btn btn-primary">Create Table</button>
+        </div>
+      </div>
+    </section>
+
     <!-- Room / lobby -->
     <section id="room-screen" class="screen">
       <button id="room-leave-btn" class="btn-home">&larr; Leave</button>
@@ -113,5 +125,6 @@
   </div>
 
   <script src="app.js"></script>
+  <script src="games/holdem.js"></script>
 </body>
 </html>
