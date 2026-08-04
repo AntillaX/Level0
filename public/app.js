@@ -19,6 +19,10 @@ const state = {
   games: [],
   pickerLoaded: false,
 
+  // Game awaiting option selection on the setup screen
+  pendingGame: null,
+  pendingOptions: {},
+
   // Last known wins map so we can detect changes and pulse the
   // score card belonging to whoever just won.
   lastWins: null,
@@ -30,7 +34,7 @@ const state = {
   mafiaLocallyRevealed: false,
 };
 
-const SCREENS = ['landing', 'room', 'game', 'gameover'];
+const SCREENS = ['landing', 'options', 'room', 'game', 'gameover'];
 
 /* ─── Utilities ────────────────────────────────────────────────── */
 
@@ -309,6 +313,8 @@ function mergeRoomState(msg) {
     'phase', 'round', 'alive', 'revealed', 'eliminations',
     'visibleRoles', 'myRole', 'mafiaVotes', 'detectiveTarget',
     'detectiveResult', 'lastNightKill', 'dayVotes', 'eliminated',
+    // Poker — the whole table arrives under one key
+    'poker', 'options', 'fillsWithBots',
   ];
   for (const k of keys) {
     if (msg[k] !== undefined) state.room[k] = msg[k];
@@ -382,8 +388,15 @@ function renderRoom() {
   } else if (isHost) {
     startBtn.classList.remove('hidden');
     startBtn.disabled = !enoughPlayers;
-    startBtn.textContent = enoughPlayers ? 'Start Game' : `Need ${r.minPlayers} players`;
-    addBotBtn.classList.toggle('hidden', roomFull || !supportsBots);
+    // Games that fill the table on start (poker) say how many seats the
+    // AI will take, rather than making the host add them by hand.
+    const emptySeats = (r.maxPlayers || 0) - playerCount;
+    startBtn.textContent = !enoughPlayers
+      ? `Need ${r.minPlayers} players`
+      : (r.fillsWithBots && emptySeats > 0
+        ? `Start with ${emptySeats} AI`
+        : 'Start Game');
+    addBotBtn.classList.toggle('hidden', roomFull || !supportsBots || r.fillsWithBots);
     waitMsg.classList.add('hidden');
   } else {
     startBtn.classList.add('hidden');
@@ -450,6 +463,11 @@ const GAME_RENDERERS = {
   mafia: renderMafia,
 };
 
+// Games with a richer end screen than win/lose/draw register here and
+// take over the game-over result panel. Poker fills this in from
+// public/games/holdem.js.
+const GAME_OVER_RENDERERS = {};
+
 function renderGame() {
   const r = state.room;
   $('game-name-label').textContent = r.gameName || '';
@@ -464,8 +482,10 @@ function renderGame() {
   // Mafia has its own players list (with role badges + alive state)
   // baked into the renderer — the generic mark/wins scoreboard at
   // the bottom is empty for it, so skip the render entirely.
+  // Mafia and poker both draw their own player furniture (role badges /
+  // seat stacks), so the generic mark-and-wins strip stays empty.
   const scoreboardEl = $('scoreboard');
-  if (r.gameType === 'mafia') {
+  if (r.gameType === 'mafia' || GAME_OVER_RENDERERS[r.gameType]) {
     scoreboardEl.innerHTML = '';
   } else {
     renderScoreboard(scoreboardEl, r);
@@ -1419,6 +1439,22 @@ function renderGameOver() {
   const scores = $('gameover-scores');
   scores.innerHTML = '';
 
+  // A game with its own end screen (poker's final standings) takes over
+  // the title and the result panel entirely.
+  const overRenderer = GAME_OVER_RENDERERS[r.gameType];
+  if (overRenderer) {
+    const won = r.result && r.result.winnerId === state.playerId;
+    title.textContent = won ? 'You win' : (r.result ? `${r.result.winnerName} wins` : 'Game over');
+    sub.textContent = r.result ? `${r.result.hands} hands played` : '';
+    overRenderer(scores, r);
+    const hostHere = r.hostId === state.playerId && state.role !== 'spectator';
+    const againBtn = $('play-again-btn');
+    againBtn.classList.toggle('hidden', !hostHere);
+    againBtn.textContent = 'New Tournament';
+    $('play-again-waiting').classList.toggle('hidden', hostHere);
+    return;
+  }
+
   if (r.gameType === 'mafia' && r.result && r.result.kind === 'win') {
     // Mafia: winner is a *side*, not a person. Show side + the
     // event that ended the game + per-round history + roles.
@@ -1575,9 +1611,70 @@ function renderPicker() {
       const playerName = ($('player-name').value || '').trim();
       if (!playerName) { toast('Enter your name first'); $('player-name').focus(); return; }
       state.myName = playerName;
+      // Games with room settings (poker's table size) get a setup step
+      // first — seat count has to be fixed before anyone joins.
+      if (g.options) {
+        state.pendingGame = g;
+        state.pendingOptions = {};
+        for (const [key, def] of Object.entries(g.options)) state.pendingOptions[key] = def.default;
+        renderOptions();
+        showScreen('options');
+        return;
+      }
       send({ type: 'create_room', gameType: g.type, playerName });
     });
     list.appendChild(tile);
+  }
+}
+
+/* ─── Options (per-game room setup) ────────────────────────────── */
+
+// Renders whatever the game declared in its `options` spec. Each option
+// is a row of mutually exclusive choices; the server re-validates the
+// selection against the same spec, so this screen is convenience, not
+// enforcement.
+function renderOptions() {
+  const g = state.pendingGame;
+  if (!g) return;
+  $('options-game-name').textContent = g.name;
+
+  const fields = $('options-fields');
+  fields.innerHTML = '';
+
+  for (const [key, def] of Object.entries(g.options || {})) {
+    const field = document.createElement('div');
+    field.className = 'option-field';
+
+    const label = document.createElement('p');
+    label.className = 'option-label';
+    label.textContent = def.label || key;
+    field.appendChild(label);
+
+    const choices = document.createElement('div');
+    choices.className = 'option-choices';
+
+    for (const choice of def.choices) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'option-choice';
+      btn.classList.toggle('is-selected', state.pendingOptions[key] === choice);
+      btn.textContent = def.suffix ? `${choice} ${def.suffix}` : String(choice);
+      btn.addEventListener('click', () => {
+        state.pendingOptions[key] = choice;
+        renderOptions();
+      });
+      choices.appendChild(btn);
+    }
+
+    field.appendChild(choices);
+    fields.appendChild(field);
+  }
+
+  if (g.fillsWithBots) {
+    const note = document.createElement('p');
+    note.className = 'hint option-note';
+    note.textContent = 'Seats nobody joins will be filled by AI players.';
+    fields.appendChild(note);
   }
 }
 
@@ -1634,6 +1731,19 @@ function init() {
 
   $('start-btn').addEventListener('click', () => send({ type: 'start_game' }));
   $('add-bot-btn').addEventListener('click', () => send({ type: 'add_bot' }));
+
+  $('options-back-btn').addEventListener('click', () => showScreen('landing'));
+
+  $('options-create-btn').addEventListener('click', () => {
+    const g = state.pendingGame;
+    if (!g) { showScreen('landing'); return; }
+    send({
+      type: 'create_room',
+      gameType: g.type,
+      playerName: state.myName,
+      options: state.pendingOptions,
+    });
+  });
   $('play-again-btn').addEventListener('click', () => send({ type: 'play_again' }));
 }
 

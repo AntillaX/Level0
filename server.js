@@ -32,6 +32,8 @@ app.get('/api/games', (req, res) => {
     minPlayers: g.minPlayers,
     maxPlayers: g.maxPlayers,
     available: g.available !== false,
+    options: g.options || null,
+    fillsWithBots: !!g.fillWithBots,
   })));
 });
 
@@ -131,7 +133,8 @@ function handleMessage(ws, msg) {
       const name = sanitizeName(msg.playerName);
       const code = generateRoomCode();
       const playerId = generatePlayerId();
-      const room = new Room(code, msg.gameType);
+      // Room validates these against the game's declared option spec.
+      const room = new Room(code, msg.gameType, msg.options);
       rooms.set(code, room);
 
       room.addPlayer(playerId, name, ws);

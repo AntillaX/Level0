@@ -1387,3 +1387,460 @@ body {
   .title { font-size: 2rem; }
   .screen { padding-top: 5rem; }
 }
+/* ─── Game options (room setup) ─────────────────────────────────── */
+
+.options-fields { margin: 1.5rem 0 1.25rem; }
+
+.option-field { margin-bottom: 1.5rem; }
+
+.option-label {
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 0.6rem;
+  text-align: center;
+}
+
+.option-choices {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 0.6rem;
+}
+
+.option-choice {
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.85rem 0.5rem;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: color var(--t-fast), border-color var(--t-fast), background var(--t-fast);
+}
+.option-choice:hover { color: var(--text-primary); border-color: var(--border-strong); }
+.option-choice.is-selected {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.option-note { text-align: center; font-size: 0.78rem; }
+
+/* ─── Poker ─────────────────────────────────────────────────────── */
+
+/* The nine-handed table needs more room than the default column. */
+#game-screen .container:has(.pk-wrap) { max-width: 940px; }
+
+/* .game-stage centers its children, which would shrink-wrap the table
+   to its content width — stretch back out to the full column. */
+.pk-wrap {
+  align-self: stretch;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.pk-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+.pk-topbar-blinds { color: var(--accent); letter-spacing: 0.05em; }
+
+/* ── Table ── */
+
+.pk-table {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  margin: 0 auto;
+}
+
+.pk-felt {
+  position: absolute;
+  inset: 17% 15%;
+  border-radius: 50% / 50%;
+  background:
+    radial-gradient(ellipse at 50% 40%, #1d3b2f 0%, #162c24 55%, #102019 100%);
+  border: 2px solid rgba(212, 168, 67, 0.22);
+  box-shadow:
+    inset 0 0 40px rgba(0, 0, 0, 0.55),
+    0 8px 30px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.5rem;
+}
+
+.pk-board { display: flex; gap: 0.3rem; }
+
+.pk-pot {
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  background: rgba(0, 0, 0, 0.35);
+  padding: 0.18rem 0.6rem;
+  border-radius: 999px;
+}
+
+.pk-status {
+  font-size: 0.68rem;
+  color: var(--text-primary);
+  text-align: center;
+  line-height: 1.35;
+  max-width: 90%;
+  min-height: 1em;
+}
+
+/* ── Cards ── */
+
+.pk-card {
+  width: clamp(1.6rem, 4.4vw, 2.4rem);
+  aspect-ratio: 5 / 7;
+  border-radius: 4px;
+  background: #f2ece0;
+  color: #14100a;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  user-select: none;
+}
+.pk-card-rank { font-size: clamp(0.6rem, 1.8vw, 0.9rem); }
+.pk-card-suit { font-size: clamp(0.55rem, 1.6vw, 0.8rem); }
+.pk-card.is-red { color: #b23a34; }
+.pk-card.is-black { color: #14100a; }
+
+.pk-card.is-back {
+  background: repeating-linear-gradient(45deg, #3a2d55 0 4px, #2b2140 4px 8px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.4);
+}
+.pk-card.is-slot {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+  box-shadow: none;
+}
+.pk-card.is-winning {
+  outline: 2px solid var(--accent);
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+.pk-card.is-mini {
+  width: clamp(1.1rem, 3vw, 1.6rem);
+  border-radius: 3px;
+}
+
+/* ── Seats ── */
+
+.pk-seat {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: clamp(4.6rem, 13vw, 6.6rem);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.18rem;
+  transition: opacity var(--t-med);
+}
+
+.pk-seat-cards { display: flex; gap: 0.15rem; min-height: 0.5rem; }
+
+.pk-seat-plate {
+  width: 100%;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.28rem 0.35rem;
+  text-align: center;
+  overflow: hidden;
+}
+
+.pk-seat-name {
+  display: block;
+  font-size: 0.66rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pk-seat-bot {
+  display: inline-block;
+  margin-left: 0.25rem;
+  font-size: 0.5rem;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  padding: 0 0.18rem;
+  vertical-align: middle;
+}
+
+.pk-seat-chips {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--accent);
+  letter-spacing: 0.03em;
+}
+
+.pk-seat.is-acting .pk-seat-plate {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), 0 0 14px var(--accent-glow);
+}
+.pk-seat.is-folded { opacity: 0.4; }
+.pk-seat.is-out { opacity: 0.28; }
+.pk-seat.is-out .pk-seat-chips { color: var(--text-dim); }
+.pk-seat.is-offline .pk-seat-name { color: var(--danger); }
+.pk-seat.is-winner .pk-seat-plate {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.pk-seat.is-me .pk-seat-plate { border-color: var(--border-strong); }
+.pk-seat.is-me .pk-seat-name { color: var(--accent); }
+
+.pk-seat-timer {
+  width: 100%;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.pk-seat-timer-fill {
+  height: 100%;
+  width: 100%;
+  background: var(--accent);
+  transition: width 0.2s linear;
+}
+.pk-seat-timer-fill.is-low { background: var(--danger); }
+
+.pk-seat-mark {
+  position: absolute;
+  top: -0.35rem;
+  right: -0.35rem;
+  font-size: 0.52rem;
+  letter-spacing: 0.04em;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 0.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-strong);
+  color: var(--text-secondary);
+}
+.pk-seat-mark.is-button {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #14100a;
+  font-weight: 700;
+}
+
+.pk-seat-action {
+  font-size: 0.58rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.pk-seat-bet {
+  font-size: 0.62rem;
+  color: var(--text-primary);
+  background: rgba(212, 168, 67, 0.16);
+  border: 1px solid rgba(212, 168, 67, 0.3);
+  border-radius: 999px;
+  padding: 0.05rem 0.4rem;
+}
+
+.pk-seat-hand {
+  font-size: 0.55rem;
+  color: var(--accent);
+  text-align: center;
+  line-height: 1.2;
+}
+
+/* ── Actions ── */
+
+.pk-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 0.75rem;
+}
+
+.pk-raise {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas: "amount slider" "presets presets";
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+.pk-raise-amount {
+  grid-area: amount;
+  font-size: 0.95rem;
+  color: var(--accent);
+  min-width: 4.5rem;
+}
+
+.pk-slider {
+  grid-area: slider;
+  width: 100%;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border);
+  outline: none;
+}
+.pk-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: none;
+}
+.pk-slider::-moz-range-thumb {
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: none;
+}
+
+.pk-presets {
+  grid-area: presets;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 0.35rem;
+}
+.pk-preset {
+  font: inherit;
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  padding: 0.35rem 0.2rem;
+  color: var(--text-secondary);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: color var(--t-fast), border-color var(--t-fast);
+}
+.pk-preset:hover { color: var(--accent); border-color: var(--accent); }
+
+.pk-buttons {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 0.5rem;
+}
+
+.pk-btn {
+  font: inherit;
+  font-size: 0.82rem;
+  letter-spacing: 0.05em;
+  padding: 0.8rem 0.4rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-surface-2);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pk-btn:hover { border-color: var(--accent); }
+.pk-btn-fold:hover { border-color: var(--danger); color: var(--danger); }
+.pk-btn-raise {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #14100a;
+  font-weight: 600;
+}
+.pk-btn-raise:hover { filter: brightness(1.08); }
+
+.pk-waiting {
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  padding: 1.1rem 0.75rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+/* ── Log ── */
+
+.pk-log {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  line-height: 1.6;
+  text-align: center;
+  min-height: 3rem;
+}
+.pk-log-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pk-log-line:last-child { color: var(--text-secondary); }
+
+/* ── Final standings ── */
+
+/* The shared scoreboard is a centred wrapping flex row, which would lay
+   the standings out in columns — a ranked list wants to be a list. */
+.scoreboard:has(.pk-standing) {
+  display: block;
+  margin-top: 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--bg-surface);
+}
+
+.pk-standing {
+  display: grid;
+  grid-template-columns: 2.6rem 1fr auto;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+.pk-standing:last-child { border-bottom: none; }
+.pk-standing-place { color: var(--text-dim); font-size: 0.75rem; letter-spacing: 0.06em; }
+.pk-standing-name { color: var(--text-secondary); text-align: left; }
+.pk-standing-chips { color: var(--accent); font-size: 0.8rem; }
+.pk-standing.is-first .pk-standing-place,
+.pk-standing.is-first .pk-standing-name { color: var(--accent); }
+.pk-standing.is-me .pk-standing-name { color: var(--text-primary); }
+
+/* ── Small screens ── */
+
+@media (max-width: 560px) {
+  .pk-table { aspect-ratio: 3 / 4; }
+  .pk-felt { inset: 20% 9%; }
+  .pk-seat { width: clamp(4rem, 22vw, 5.2rem); }
+  .pk-btn { font-size: 0.75rem; padding: 0.75rem 0.3rem; }
+  .pk-topbar { font-size: 0.62rem; }
+}

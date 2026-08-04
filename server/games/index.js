@@ -2,11 +2,22 @@ const TicTacToe = require('./TicTacToe');
 const FourInARow = require('./FourInARow');
 const DotsAndBoxes = require('./DotsAndBoxes');
 const Mafia = require('./Mafia');
+const TexasHoldem = require('./poker/TexasHoldem');
 
 // Registry of game types. `available: false` keeps a tile visible in
 // the picker but disabled — useful for "coming soon" before we ship a
 // game. The Room looks up a game class by `type` and instantiates it
-// with (players, broadcast).
+// with (players, broadcast, onEnd, opts).
+//
+// Optional keys:
+//   noBots         – the game can't be played with bots at all.
+//   handlesDisconnect – mid-game drops get a reconnect grace window.
+//   options        – host-chosen room settings. Each entry declares its
+//                    allowed `choices` and a `default`; the Room
+//                    validates against this, so nothing a client sends
+//                    can widen it. `tableSize` also drives seat count.
+//   fillWithBots   – empty seats are topped up with bots when the host
+//                    starts, instead of being added one at a time.
 const GAMES = {
   tictactoe: {
     type: 'tictactoe',
@@ -34,6 +45,20 @@ const GAMES = {
     maxPlayers: 2,
     available: true,
     GameClass: DotsAndBoxes,
+  },
+  holdem: {
+    type: 'holdem',
+    name: "Texas Hold'em",
+    tagline: 'Tournament poker. Everyone starts with $1M.',
+    // One real player is enough — the rest of the table fills with AI.
+    minPlayers: 1,
+    maxPlayers: 9,
+    available: true,
+    options: {
+      tableSize: { label: 'Table size', choices: [5, 9], default: 9, suffix: 'seats' },
+    },
+    fillWithBots: true,
+    GameClass: TexasHoldem,
   },
   mafia: {
     type: 'mafia',

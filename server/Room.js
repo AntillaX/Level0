@@ -2,14 +2,17 @@ const Player = require('./Player');
 const { GAMES } = require('./games');
 
 const SPECTATOR_LIMIT = 20;
-const BOT_NAMES = ['Atlas', 'Echo', 'Nova', 'Sage', 'Pixel', 'Onyx'];
+const BOT_NAMES = ['Atlas', 'Echo', 'Nova', 'Sage', 'Pixel', 'Onyx', 'Vega', 'Rook', 'Wren', 'Cassidy'];
 const RECONNECT_GRACE_MS = 20000; // refresh tolerance for handlesDisconnect games
 
 class Room {
-  constructor(code, gameType) {
+  constructor(code, gameType, options) {
     this.code = code;
     this.gameType = gameType;
     this.gameMeta = GAMES[gameType];
+    // Host-chosen room settings, validated against the game's declared
+    // option spec (poker's 5- or 9-handed table).
+    this.options = this.sanitizeOptions(options);
     this.occupants = new Map(); // id -> Player (players + spectators)
     this.hostId = null;
     this.game = null;
@@ -25,6 +28,29 @@ class Room {
   }
 
   // ── helpers ──────────────────────────────────────────────────────
+
+  // Anything not declared in the game's `options` spec is dropped, and
+  // any value outside the declared choices falls back to the default —
+  // a hand-edited client message can't conjure a 40-seat poker table.
+  sanitizeOptions(raw) {
+    const spec = this.gameMeta && this.gameMeta.options;
+    if (!spec) return {};
+    const src = raw && typeof raw === 'object' ? raw : {};
+    const out = {};
+    for (const [key, def] of Object.entries(spec)) {
+      out[key] = def.choices.includes(src[key]) ? src[key] : def.default;
+    }
+    return out;
+  }
+
+  // Seat count can come from a room option rather than being fixed per
+  // game type.
+  maxPlayers() {
+    if (this.options && typeof this.options.tableSize === 'number') {
+      return this.options.tableSize;
+    }
+    return this.gameMeta.maxPlayers;
+  }
 
   players() {
     const out = [];
@@ -51,7 +77,7 @@ class Room {
   }
 
   canSeatPlayer() {
-    return this.state === 'lobby' && this.players().length < this.gameMeta.maxPlayers;
+    return this.state === 'lobby' && this.players().length < this.maxPlayers();
   }
 
   // ── joining ──────────────────────────────────────────────────────
@@ -259,10 +285,17 @@ class Room {
     if (this.state !== 'lobby') {
       return { success: false, error: 'Game already started' };
     }
-    const players = this.players();
-    if (players.length < this.gameMeta.minPlayers) {
+    if (this.players().length < this.gameMeta.minPlayers) {
       return { success: false, error: `Need at least ${this.gameMeta.minPlayers} players` };
     }
+    // Games that seat a fixed table (poker) top the empty chairs up with
+    // bots rather than making the host add eight of them by hand.
+    if (this.gameMeta.fillWithBots) {
+      while (this.players().length < this.maxPlayers()) {
+        if (!this.addBot().success) break;
+      }
+    }
+    const players = this.players();
     const GameClass = this.gameMeta.GameClass;
     // Pass a wrapped broadcast so every game-emitted message carries the
     // current room state (roomCode, hostId, players, roomState, etc).
@@ -279,6 +312,7 @@ class Room {
       {
         wins: this.persistentWins,
         broadcastPerViewer: this.broadcastPerViewer.bind(this),
+        options: this.options,
       },
     );
     this.state = 'playing';
@@ -307,6 +341,12 @@ class Room {
   playAgain() {
     if (this.state !== 'finished') {
       return { success: false, error: 'No finished game to replay' };
+    }
+    // Tear the finished game down before dropping the reference. Games
+    // that run on timers (poker's turn clock and hand pacing) would
+    // otherwise keep firing into an orphaned instance.
+    if (this.game && typeof this.game.destroy === 'function') {
+      this.game.destroy();
     }
     this.game = null;
     this.state = 'lobby';
@@ -352,7 +392,9 @@ class Room {
       hostId: this.hostId,
       roomState: this.state,
       minPlayers: this.gameMeta.minPlayers,
-      maxPlayers: this.gameMeta.maxPlayers,
+      maxPlayers: this.maxPlayers(),
+      options: this.options,
+      fillsWithBots: !!this.gameMeta.fillWithBots,
       players: this.players().map((p) => p.toJSON()),
       spectators: this.spectators().map((p) => p.toJSON()),
     };
