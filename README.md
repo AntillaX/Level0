@@ -29,10 +29,22 @@ simulates a few hundred runouts of the current hand against random
 opponent holdings to get a real equity number, then weighs that against
 pot odds, the size of the bet it's facing, whether anyone has raised,
 its position, and how deep its stack is. Under ~10 big blinds it
-switches to push/fold. Each seat draws one of six personality profiles
-(tight-aggressive, calling station, maniac, …) with per-bot jitter, so a
-table of nine doesn't play as one player. A decision costs well under a
-millisecond.
+switches to push/fold. A decision costs well under a millisecond.
+
+**Who the bots are depends on who else is at the table.** Playing alone,
+the bots *are* the game, so each takes one of six deliberately
+exaggerated archetypes — Shark, Rock, Maniac, Station, Bully, Grinder —
+pushed far enough apart to be readable across a tournament. The Rock's
+bluff frequency is literally zero; the Station calls at twice everyone
+else's rate; the Maniac raises on roughly half its actions against the
+Rock's one in twenty. The style shows on the seat, because learning to
+read the table is the thing that makes a solo game worth beating.
+
+With two or more humans seated, the game is the people, not the bots.
+Every filler seat drops to a single quiet profile that folds more,
+rarely bluffs and rarely builds a big pot, stays anonymous (no style
+label), and thinks at half the delay — so the bots keep the table full
+without hijacking the hand your friends are actually playing.
 
 The engine lives in `server/games/poker/` and imports nothing from Level
 0, so it can be lifted out if it ever outgrows this repo.

@@ -48,14 +48,26 @@ class TexasHoldem {
     this.timing = Object.assign({}, TIMING, opts.timing || {});
 
     // Everyone at the table arrives in `players`, bots included — the
-    // Room seats them and tops the table up before we start. Each bot
-    // seat gets its own decision engine, with the seat index picking a
-    // personality so a full table doesn't play as one player.
+    // Room seats them and tops the table up before we start.
+    const seated = players.slice(0, this.tableSize);
+    const humanCount = seated.filter((p) => !p.isBot).length;
+    const botCount = seated.length - humanCount;
+
+    // Who the bots are depends on who else is at the table. Alone, they
+    // *are* the game, so each one is a distinct character you can learn
+    // to read. With friends at the table the game is the people — the
+    // bots drop back to a single quiet profile, play tight, and stay
+    // out of the hand the humans are actually playing.
+    this.aiMode = humanCount >= 2 ? 'filler' : 'solo';
+    const profiles = this.aiMode === 'solo'
+      ? AIPlayer.soloProfileOrder(botCount)
+      : new Array(botCount).fill(AIPlayer.FILLER_PROFILE);
+
     this.seats = [];
     let botIndex = 0;
-    for (const p of players.slice(0, this.tableSize)) {
+    for (const p of seated) {
       const seat = this.makeSeat(p.id, p.name, !!p.isBot, p);
-      if (seat.isAI) seat.ai = new AIPlayer(p.id, botIndex++);
+      if (seat.isAI) seat.ai = new AIPlayer(p.id, profiles[botIndex++], this.aiMode);
       this.seats.push(seat);
     }
 
@@ -157,8 +169,13 @@ class TexasHoldem {
     return this.seats.find((s) => s.id === id) || null;
   }
 
+  // Entries carry a monotonic sequence number so the client can append
+  // only what it hasn't shown yet — the log it receives is a sliding
+  // window, and matching on text alone would duplicate repeated lines
+  // like "Atlas folds."
   addLog(text) {
-    this.log.push({ text, hand: this.handNumber });
+    this.logSeq = (this.logSeq || 0) + 1;
+    this.log.push({ seq: this.logSeq, text, hand: this.handNumber });
     if (this.log.length > LOG_LIMIT) this.log.shift();
   }
 
@@ -308,7 +325,10 @@ class TexasHoldem {
     if (seat.isAI) {
       this.emit('game_update');
       const t = this.timing;
-      const delay = t.aiMin + Math.random() * Math.max(0, t.aiMax - t.aiMin);
+      // Filler bots think at half speed — with friends waiting, a bot
+      // pondering is just dead air between the hands that matter.
+      const scale = this.aiMode === 'filler' ? 0.5 : 1;
+      const delay = (t.aiMin + Math.random() * Math.max(0, t.aiMax - t.aiMin)) * scale;
       this.turnTimer = this.later(() => this.runAI(seat), delay);
       return;
     }
@@ -640,6 +660,11 @@ class TexasHoldem {
       }
     }
 
+    // Chips in front have been swept into the pot — clear them so the
+    // table doesn't show the same money twice, once in the pot total and
+    // again as a bet still sitting in front of a player.
+    for (const s of inHand) s.bet = 0;
+
     this.logSettlement(potResults, showdown);
 
     this.handResult = {
@@ -769,6 +794,7 @@ class TexasHoldem {
       result: this.result,
       poker: {
         tableSize: this.tableSize,
+        aiMode: this.aiMode,
         handNumber: this.handNumber,
         stage: this.stage,
         street: this.street,
@@ -819,6 +845,10 @@ class TexasHoldem {
       connected: seat.isAI ? true : !!(seat.player && seat.player.connected),
       isBot: seat.isAI,
       isMe: !!mine,
+      // Only solo tables advertise a playing style — with friends at
+      // the table the bots stay anonymous.
+      style: seat.ai ? seat.ai.style : null,
+      styleHint: seat.ai ? seat.ai.styleHint : null,
       holeCards: visible ? seat.holeCards.map(toCode) : (seat.inHand && !seat.folded ? ['??', '??'] : []),
       handName: seat.showCards ? seat.handName : null,
       winning: seat.winning,

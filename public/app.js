@@ -473,11 +473,15 @@ function renderGame() {
   $('game-name-label').textContent = r.gameName || '';
   const renderer = GAME_RENDERERS[r.gameType];
   const stage = $('game-stage');
-  stage.innerHTML = '';
   if (!renderer) {
+    stage.innerHTML = '';
     stage.textContent = 'Unsupported game';
     return;
   }
+  // Renderers that patch their own DOM keep it between updates — that's
+  // what lets them animate, since an element wiped and rebuilt every
+  // frame can never finish a transition. They handle their own mount.
+  if (!renderer.incremental) stage.innerHTML = '';
   renderer(stage, r);
   // Mafia has its own players list (with role badges + alive state)
   // baked into the renderer — the generic mark/wins scoreboard at
