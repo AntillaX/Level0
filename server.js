@@ -39,6 +39,20 @@ app.get('/api/games', (req, res) => {
 
 const rooms = new Map();
 
+// Which commit is actually running. Read once at boot: there is
+// otherwise no way to answer "is my change live yet?" without shell
+// access to the droplet, and that question comes up every deploy.
+const DEPLOYED_COMMIT = (() => {
+  try {
+    return require('child_process')
+      .execSync('git rev-parse --short HEAD', { cwd: __dirname, stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString().trim() || null;
+  } catch {
+    return null; // not a git checkout, or git isn't installed
+  }
+})();
+const STARTED_AT = new Date().toISOString();
+
 // Whether anyone is mid-game right now. The auto-deploy timer asks
 // before restarting: rooms live in memory, so a restart during a
 // tournament destroys it. Reported as counts rather than any room
@@ -50,7 +64,14 @@ app.get('/api/status', (req, res) => {
     if (room.state === 'playing') active++;
     players += room.connectedPlayerCount();
   }
-  res.json({ rooms: rooms.size, activeGames: active, connectedPlayers: players, busy: active > 0 });
+  res.json({
+    commit: DEPLOYED_COMMIT,
+    startedAt: STARTED_AT,
+    rooms: rooms.size,
+    activeGames: active,
+    connectedPlayers: players,
+    busy: active > 0,
+  });
 });
 
 // Avoid 0/O and 1/I/L to keep room codes legible when typed off a screen.
