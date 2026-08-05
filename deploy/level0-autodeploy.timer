@@ -1,0 +1,21 @@
+# Checks GitHub for new commits on main every two minutes.
+#
+# Two minutes is a deliberate compromise: fast enough that a merge is
+# live before you've finished reading the PR, slow enough that the
+# droplet isn't hammering GitHub. The check is a `git pull` that
+# usually returns nothing, so the cost of a tick is a few KB.
+
+[Unit]
+Description=Check every two minutes for new Level 0 commits
+
+[Timer]
+# First check shortly after boot, then every two minutes.
+OnBootSec=1min
+OnUnitActiveSec=2min
+# Don't fire a missed run immediately after downtime — wait a tick so
+# the service and network are properly up first.
+Persistent=false
+Unit=level0-autodeploy.service
+
+[Install]
+WantedBy=timers.target
