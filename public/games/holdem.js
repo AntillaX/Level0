@@ -132,9 +132,12 @@ function paintCard(node, code, opts = {}) {
 // at a real table. A nine-handed table on a phone needs a tighter
 // horizontal spread or the end seats collide with each other.
 function seatPositions(n) {
+  // Seats belong *on* the rail. Pushed further out they float in empty
+  // space, which both wastes room and lengthens the eye path between an
+  // opponent and the board you're reading them against.
   const narrow = window.innerWidth < 560;
-  const rx = narrow ? (n > 6 ? 34 : 36) : 46;
-  const ry = narrow ? (n > 6 ? 43 : 42) : 39;
+  const rx = narrow ? (n > 6 ? 33 : 35) : 41;
+  const ry = narrow ? (n > 6 ? 41 : 40) : 37;
 
   const out = [];
   for (let i = 0; i < n; i++) {
@@ -242,7 +245,10 @@ function buildSeat(parent, seat) {
   const timer = el('div', 'pk-seat-timer', root);
   const timerFill = el('div', 'pk-seat-timer-fill', timer);
 
-  const mark = el('span', 'pk-seat-mark', root);
+  // The dealer/blind marker hangs off the nameplate rather than the
+  // seat box: anchored to the seat it sat in the same row as the hole
+  // cards and clipped them once the cards grew.
+  const mark = el('span', 'pk-seat-mark', plate);
   const action = el('span', 'pk-seat-action', root);
   const bet = el('span', 'pk-seat-bet', root);
   const hand = el('span', 'pk-seat-hand', root);
@@ -265,10 +271,6 @@ function renderHoldem(stage, room) {
 
   const els = view.els;
   const prev = view.prev;
-
-  // The shared turn banner is redundant next to the poker top bar.
-  const banner = $('turn-banner');
-  if (banner) setText(banner, '');
 
   updateTopBar(els, p);
   updateBoard(els, p);
@@ -293,13 +295,24 @@ function renderHoldem(stage, room) {
 renderHoldem.incremental = true;
 
 function updateTopBar(els, p) {
+  // On a phone this row shares its width with the Leave button, so it
+  // carries only what changes a decision: the blinds, and how soon they
+  // rise. The hand counter is the first thing to go — it's a tally, not
+  // information you act on.
+  const narrow = window.innerWidth < 560;
+  const n = p.level.handsUntilNext + 1;
+
+  setHidden(els.hand, narrow);
   setText(els.hand, `Hand ${p.handNumber}`);
-  setText(els.blinds, `Blinds ${chips(p.level.sb)} / ${chips(p.level.bb)}`);
+
+  setText(els.blinds, narrow
+    ? `${chips(p.level.sb)} / ${chips(p.level.bb)}`
+    : `Blinds ${chips(p.level.sb)} / ${chips(p.level.bb)}`);
   els.blinds.title = `Blinds ${exact(p.level.sb)} / ${exact(p.level.bb)}`
     + (p.level.ante ? ` · ante ${exact(p.level.ante)}` : '');
 
-  const n = p.level.handsUntilNext + 1;
-  setText(els.level, `Blinds up in ${n} hand${n === 1 ? '' : 's'}`);
+  setText(els.level, narrow ? `↑ ${n}` : `Blinds up in ${n} hand${n === 1 ? '' : 's'}`);
+  els.level.title = `Blinds rise in ${n} hand${n === 1 ? '' : 's'}`;
   // Flag the last hand before the jump — it changes how you should play.
   setClass(els.level, 'is-soon', n <= 1);
 }
@@ -386,8 +399,11 @@ function updateSeats(els, p) {
     setHidden(s.mark, !markText);
     setClass(s.mark, 'is-button', markText === 'D');
 
-    // Last action, colour-coded so aggression reads at a glance.
-    const act = seat.eliminated ? '' : (seat.lastAction || '');
+    // Last action, colour-coded so aggression reads at a glance. A fold
+    // is already said by the dimmed seat and the missing cards, so the
+    // badge would just repeat it — nine seats reading FOLD is noise.
+    const raw = seat.eliminated ? '' : (seat.lastAction || '');
+    const act = /^fold$/i.test(raw) ? '' : raw;
     setText(s.action, act);
     setHidden(s.action, !act);
     const aggressive = /raise|bet|all-in/i.test(act);
@@ -451,7 +467,7 @@ function updateLog(els, p) {
     }
   }
   // Keep the tail only; the newest line is styled as the current one.
-  while (els.log.children.length > 5) els.log.removeChild(els.log.firstChild);
+  while (els.log.children.length > 2) els.log.removeChild(els.log.firstChild);
   const kids = els.log.children;
   for (let i = 0; i < kids.length; i++) {
     setClass(kids[i], 'is-latest', i === kids.length - 1);
