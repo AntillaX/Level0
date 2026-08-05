@@ -23,14 +23,31 @@
 
 const { evaluate } = require('./HandEvaluator');
 
-const PROFILES = [
-  { label: 'tight-aggressive', betShare: 1.30, raiseShare: 1.70, aggression: 0.60, bluff: 0.10, caution: 0.40, sizing: 1.00 },
-  { label: 'loose-aggressive', betShare: 1.12, raiseShare: 1.45, aggression: 0.75, bluff: 0.20, caution: 0.25, sizing: 1.15 },
-  { label: 'rock',             betShare: 1.55, raiseShare: 2.00, aggression: 0.35, bluff: 0.03, caution: 0.55, sizing: 0.90 },
-  { label: 'calling station',  betShare: 1.40, raiseShare: 2.10, aggression: 0.20, bluff: 0.02, caution: 0.10, sizing: 0.85 },
-  { label: 'grinder',          betShare: 1.35, raiseShare: 1.75, aggression: 0.50, bluff: 0.08, caution: 0.45, sizing: 0.95 },
-  { label: 'maniac',           betShare: 0.95, raiseShare: 1.25, aggression: 0.85, bluff: 0.30, caution: 0.15, sizing: 1.30 },
+// Solo opponents. Playing alone, the table *is* the game, so these are
+// deliberately exaggerated and pushed apart far enough that you can
+// learn to read them across a tournament: the Rock's bluff frequency is
+// literally zero, the Station's fold-to-a-bet is near zero, the Maniac
+// raises with almost anything. A player who notices that has an edge,
+// which is the thing that makes a solo table worth beating.
+const SOLO_PROFILES = [
+  { label: 'Shark',   hint: 'balanced and dangerous',   betShare: 1.25, raiseShare: 1.60, aggression: 0.65, bluff: 0.14, caution: 0.42, sizing: 1.05 },
+  { label: 'Rock',    hint: 'premium hands only',       betShare: 1.90, raiseShare: 2.50, aggression: 0.30, bluff: 0.00, caution: 0.75, sizing: 0.80 },
+  { label: 'Maniac',  hint: 'raises with anything',     betShare: 0.80, raiseShare: 1.05, aggression: 0.95, bluff: 0.45, caution: 0.08, sizing: 1.50 },
+  { label: 'Station', hint: 'calls, almost never folds', betShare: 1.70, raiseShare: 2.60, aggression: 0.10, bluff: 0.00, caution: 0.02, sizing: 0.80 },
+  { label: 'Bully',   hint: 'punishes weakness',        betShare: 1.00, raiseShare: 1.35, aggression: 0.85, bluff: 0.32, caution: 0.18, sizing: 1.35 },
+  { label: 'Grinder', hint: 'tight and textbook',       betShare: 1.38, raiseShare: 1.78, aggression: 0.55, bluff: 0.07, caution: 0.48, sizing: 0.95 },
 ];
+
+// Filler seats, used when two or more humans are at the table. There
+// the game is the people, not the bots — so every filler seat plays the
+// same quiet, slightly tight game. It folds a lot, rarely bluffs and
+// rarely builds a big pot, which keeps it out of the way of the hand
+// the humans are actually playing. It still plays correctly, so nobody
+// wins a pot off a bot that simply gave up.
+const FILLER_PROFILE = {
+  label: null, hint: null,
+  betShare: 1.45, raiseShare: 1.95, aggression: 0.40, bluff: 0.04, caution: 0.50, sizing: 0.90,
+};
 
 // More simulations where the decision is closest and the branching is
 // smallest. Preflop nine-handed is the most expensive case and also the
@@ -41,21 +58,54 @@ function clamp(v, lo, hi) {
   return v < lo ? lo : (v > hi ? hi : v);
 }
 
+// Deal out the solo archetypes so the first six seats are all
+// different — a table of nine repeats two, which jitter then separates.
+function soloProfileOrder(count) {
+  const shuffled = SOLO_PROFILES.slice();
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  const out = [];
+  for (let i = 0; i < count; i++) out.push(shuffled[i % shuffled.length]);
+  return out;
+}
+
 class AIPlayer {
-  constructor(id, index) {
+  // `mode` is 'solo' (one human, so the bots are the opposition and
+  // each is a distinct character) or 'filler' (several humans, so the
+  // bots stay deliberately anonymous and out of the way).
+  constructor(id, base, mode = 'solo') {
     this.id = id;
-    const base = PROFILES[index % PROFILES.length];
-    // Jitter so two bots sharing an archetype still differ.
-    const j = () => 1 + (Math.random() - 0.5) * 0.12;
+    this.mode = mode;
+
+    // Jitter separates two seats sharing an archetype without blurring
+    // what makes the archetype recognizable — the traits that define a
+    // character (a Rock that never bluffs) are left exactly alone.
+    const spread = mode === 'filler' ? 0.10 : 0.05;
+    const j = () => 1 + (Math.random() - 0.5) * spread;
+
     this.profile = {
       label: base.label,
+      hint: base.hint,
       betShare: base.betShare * j(),
       raiseShare: base.raiseShare * j(),
       aggression: clamp(base.aggression * j(), 0.05, 0.95),
-      bluff: clamp(base.bluff * j(), 0, 0.4),
-      caution: clamp(base.caution * j(), 0.05, 0.8),
+      // A zero stays zero: "never bluffs" has to actually mean never.
+      bluff: base.bluff === 0 ? 0 : clamp(base.bluff * j(), 0.01, 0.5),
+      caution: clamp(base.caution * j(), 0.02, 0.85),
       sizing: base.sizing * j(),
     };
+  }
+
+  // Shown on the seat in solo play so the table is readable; null in
+  // filler mode, where the bots aren't meant to draw attention.
+  get style() {
+    return this.profile.label;
+  }
+
+  get styleHint() {
+    return this.profile.hint;
   }
 
   // ── equity ───────────────────────────────────────────────────────
@@ -238,5 +288,9 @@ class AIPlayer {
     return clamp(to, legal.minRaiseTo, legal.maxRaiseTo);
   }
 }
+
+AIPlayer.SOLO_PROFILES = SOLO_PROFILES;
+AIPlayer.FILLER_PROFILE = FILLER_PROFILE;
+AIPlayer.soloProfileOrder = soloProfileOrder;
 
 module.exports = AIPlayer;

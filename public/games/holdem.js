@@ -4,490 +4,54 @@
  * Everything it needs arrives in `room.poker` — the server sends each
  * player their own view, so this file never has to decide what to hide.
  *
- * The seat ring is rotated so you always sit at the bottom of the
- * table, which is what makes position readable at a glance.
+ * This renderer is *incremental*: it mounts the table once and then
+ * patches it in place. That matters for more than performance. Poker is
+ * a game of small state changes — a bet appears, chips slide in, a card
+ * turns over — and if the DOM is torn down and rebuilt on every server
+ * message, every one of those changes is a teleport. Keeping elements
+ * alive between frames is what lets the table *show* what happened
+ * rather than just display where things ended up.
+ *
+ * The seat ring is rotated so you always sit at the bottom, which is
+ * what makes position readable at a glance.
  */
 
 const SUIT_SYMBOL = { c: '♣', d: '♦', h: '♥', s: '♠' };
 
-let tickTimer = null;
-let raiseDraft = null;   // slider value, kept across re-renders
-let raiseDraftKey = '';  // resets the draft when the decision changes
+// Everything that has to survive between updates.
+const view = {
+  key: null,        // identity of the mounted table; changes force a rebuild
+  root: null,
+  els: null,
+  prev: {},         // last-seen values, for change detection
+  lastLogSeq: 0,
+  actionSig: null,  // rebuild the action bar only when the decision changes
+  tickTimer: null,
+  raiseDraft: null,
+};
 
 /* ─── Formatting ───────────────────────────────────────────────── */
 
-// Stacks are in the millions and blinds in the thousands, so full
-// digits are unreadable on a seat badge. Compact everywhere, exact in
-// the title attribute for anyone who wants the real number.
+// Stacks run to the millions and blinds to the thousands, so full
+// digits are unreadable on a seat badge. Three significant figures is
+// the sweet spot: $1.04M still reads as different from $1M, which
+// matters when the number is how you track who's winning.
 function chips(n) {
   if (n === null || n === undefined) return '';
   const abs = Math.abs(n);
   if (abs >= 1000000) {
     const v = n / 1000000;
-    return '$' + (v >= 100 ? Math.round(v) : v.toFixed(v >= 10 ? 1 : 2).replace(/\.0+$/, '')) + 'M';
+    return '$' + (v >= 100 ? v.toFixed(0) : v.toFixed(2).replace(/0$/, '')) + 'M';
   }
   if (abs >= 1000) {
     const v = n / 1000;
-    return '$' + (v >= 100 ? Math.round(v) : v.toFixed(1).replace(/\.0$/, '')) + 'K';
+    return '$' + (v >= 100 ? v.toFixed(0) : v.toFixed(1).replace(/\.0$/, '')) + 'K';
   }
-  return '$' + n;
+  return '$' + Math.round(n);
 }
 
 function exact(n) {
   return '$' + (n || 0).toLocaleString('en-US');
-}
-
-/* ─── Card ─────────────────────────────────────────────────────── */
-
-function cardEl(code, cls) {
-  const el = document.createElement('div');
-  el.className = 'pk-card' + (cls ? ' ' + cls : '');
-  if (!code || code === '??') {
-    el.classList.add('is-back');
-    return el;
-  }
-  const rank = code[0] === 'T' ? '10' : code[0];
-  const suit = code[1];
-  el.classList.add(suit === 'h' || suit === 'd' ? 'is-red' : 'is-black');
-
-  const r = document.createElement('span');
-  r.className = 'pk-card-rank';
-  r.textContent = rank;
-  const s = document.createElement('span');
-  s.className = 'pk-card-suit';
-  s.textContent = SUIT_SYMBOL[suit] || '';
-  el.appendChild(r);
-  el.appendChild(s);
-  return el;
-}
-
-/* ─── Seat geometry ────────────────────────────────────────────── */
-
-// Seats sit on an ellipse, index 0 at the bottom (that's you) and the
-// rest running clockwise, so the player to your left is where they'd
-// be at a real table.
-function seatPositions(n) {
-  // On a narrow screen the table is taller than it is wide, and a seat
-  // pushed out to the same horizontal radius would hang off the edge —
-  // so trade horizontal spread for vertical.
-  const narrow = window.innerWidth < 560;
-  const rx = narrow ? 36 : 46;
-  const ry = narrow ? 42 : 39;
-
-  const out = [];
-  for (let i = 0; i < n; i++) {
-    const t = Math.PI / 2 + (i / n) * Math.PI * 2;
-    out.push({
-      x: 50 + rx * Math.cos(t),
-      y: 50 + ry * Math.sin(t),
-    });
-  }
-  return out;
-}
-
-/* ─── Main render ──────────────────────────────────────────────── */
-
-function renderHoldem(stage, room) {
-  const p = room.poker;
-  if (!p) { stage.textContent = 'Waiting for the table…'; return; }
-
-  clearInterval(tickTimer);
-  tickTimer = null;
-
-  // The shared turn banner is redundant next to the poker top bar.
-  const banner = $('turn-banner');
-  if (banner) banner.textContent = '';
-
-  const wrap = document.createElement('div');
-  wrap.className = 'pk-wrap';
-
-  wrap.appendChild(renderTopBar(p));
-  wrap.appendChild(renderTable(p));
-
-  const acting = p.seats.find((s) => s.id === p.actingId);
-  if (p.legal) {
-    wrap.appendChild(renderActions(p));
-  } else {
-    wrap.appendChild(renderWaiting(p, acting));
-  }
-
-  wrap.appendChild(renderLog(p));
-  stage.appendChild(wrap);
-
-  startTicker(p);
-}
-
-function renderTopBar(p) {
-  const bar = document.createElement('div');
-  bar.className = 'pk-topbar';
-
-  const left = document.createElement('span');
-  left.className = 'pk-topbar-item';
-  left.textContent = `Hand ${p.handNumber}`;
-
-  const mid = document.createElement('span');
-  mid.className = 'pk-topbar-item pk-topbar-blinds';
-  mid.textContent = `${chips(p.level.sb)} / ${chips(p.level.bb)}`;
-  mid.title = `Blinds ${exact(p.level.sb)} / ${exact(p.level.bb)}`
-    + (p.level.ante ? ` · ante ${exact(p.level.ante)}` : '');
-
-  const right = document.createElement('span');
-  right.className = 'pk-topbar-item';
-  const left_ = p.level.handsUntilNext;
-  right.textContent = `Level ${p.level.index + 1} · up in ${left_ + 1}`;
-  right.title = `Blinds rise in ${left_ + 1} hand${left_ === 0 ? '' : 's'}`;
-
-  bar.appendChild(left);
-  bar.appendChild(mid);
-  bar.appendChild(right);
-  return bar;
-}
-
-function renderTable(p) {
-  const table = document.createElement('div');
-  table.className = 'pk-table';
-
-  const felt = document.createElement('div');
-  felt.className = 'pk-felt';
-
-  // Community cards
-  const board = document.createElement('div');
-  board.className = 'pk-board';
-  const winning = new Set((p.handResult && p.handResult.winningCards) || []);
-  for (let i = 0; i < 5; i++) {
-    const code = p.board[i];
-    if (code) {
-      board.appendChild(cardEl(code, winning.has(code) ? 'is-winning' : ''));
-    } else {
-      const slot = document.createElement('div');
-      slot.className = 'pk-card is-slot';
-      board.appendChild(slot);
-    }
-  }
-  felt.appendChild(board);
-
-  // Pot
-  const pot = document.createElement('div');
-  pot.className = 'pk-pot';
-  pot.textContent = `Pot ${chips(p.pot)}`;
-  pot.title = `Pot ${exact(p.pot)}`;
-  felt.appendChild(pot);
-
-  // Result line / side-pot note
-  const status = document.createElement('div');
-  status.className = 'pk-status';
-  status.textContent = statusLine(p);
-  felt.appendChild(status);
-
-  table.appendChild(felt);
-
-  // Rotate so the viewer is always seated at the bottom.
-  const seats = p.seats.slice();
-  const myIdx = seats.findIndex((s) => s.isMe);
-  const ordered = myIdx >= 0 ? seats.slice(myIdx).concat(seats.slice(0, myIdx)) : seats;
-  const pos = seatPositions(ordered.length);
-
-  ordered.forEach((seat, i) => {
-    const el = renderSeat(seat, p, winning);
-    el.style.left = pos[i].x + '%';
-    el.style.top = pos[i].y + '%';
-    table.appendChild(el);
-  });
-
-  return table;
-}
-
-function statusLine(p) {
-  if (p.handResult && p.handResult.pots && p.handResult.pots.length) {
-    return p.handResult.pots.map((pot) => {
-      const names = pot.winners.map((w) => w.name).join(' & ');
-      const hand = pot.winners[0] && pot.winners[0].handName;
-      return `${names} ${pot.winners.length > 1 ? 'split' : 'wins'} ${chips(pot.amount)}${hand ? ' — ' + hand : ''}`;
-    }).join('   ·   ');
-  }
-  if (p.pots && p.pots.length > 1) {
-    return `${p.pots.length} pots in play`;
-  }
-  if (p.stage === 'runout') return 'All in — running it out';
-  return '';
-}
-
-function renderSeat(seat, p, winning) {
-  const el = document.createElement('div');
-  el.className = 'pk-seat';
-  if (seat.isMe) el.classList.add('is-me');
-  if (seat.folded) el.classList.add('is-folded');
-  if (seat.eliminated) el.classList.add('is-out');
-  if (seat.id === p.actingId) el.classList.add('is-acting');
-  if (seat.winning) el.classList.add('is-winner');
-  if (!seat.connected) el.classList.add('is-offline');
-
-  // Hole cards
-  const cards = document.createElement('div');
-  cards.className = 'pk-seat-cards';
-  if (seat.inHand && !seat.eliminated && seat.holeCards.length) {
-    for (const c of seat.holeCards) {
-      // Highlight a hole card only for the seat that actually won with
-      // it — the same rank can sit in a loser's hand untouched.
-      const isWinningCard = seat.winning && winning && winning.has(c);
-      cards.appendChild(cardEl(c, 'is-mini' + (isWinningCard ? ' is-winning' : '')));
-    }
-  }
-  el.appendChild(cards);
-
-  // Name plate
-  const plate = document.createElement('div');
-  plate.className = 'pk-seat-plate';
-
-  const name = document.createElement('span');
-  name.className = 'pk-seat-name';
-  name.textContent = seat.name;
-  if (seat.isAI) {
-    const bot = document.createElement('span');
-    bot.className = 'pk-seat-bot';
-    bot.textContent = 'AI';
-    name.appendChild(bot);
-  }
-  plate.appendChild(name);
-
-  const stack = document.createElement('span');
-  stack.className = 'pk-seat-chips';
-  if (seat.eliminated) {
-    stack.textContent = seat.place ? `Out · ${ordinal(seat.place)}` : 'Out';
-  } else {
-    stack.textContent = seat.allIn ? 'All-in' : chips(seat.chips);
-    stack.title = exact(seat.chips);
-  }
-  plate.appendChild(stack);
-  el.appendChild(plate);
-
-  // Turn clock — only for the seat on the clock, and only when the
-  // server actually gave us a deadline (bots don't get one).
-  if (seat.id === p.actingId && p.actingDeadline) {
-    const timer = document.createElement('div');
-    timer.className = 'pk-seat-timer';
-    const fill = document.createElement('div');
-    fill.className = 'pk-seat-timer-fill';
-    fill.dataset.deadline = String(p.actingDeadline);
-    fill.dataset.total = String(p.turnMs);
-    timer.appendChild(fill);
-    el.appendChild(timer);
-  }
-
-  // Dealer / blind markers
-  const marks = [];
-  if (seat.id === p.buttonId) marks.push(['D', 'is-button']);
-  else if (seat.id === p.sbId) marks.push(['SB', '']);
-  else if (seat.id === p.bbId) marks.push(['BB', '']);
-  if (marks.length) {
-    const m = document.createElement('span');
-    m.className = 'pk-seat-mark ' + marks[0][1];
-    m.textContent = marks[0][0];
-    el.appendChild(m);
-  }
-
-  // Last action + chips pushed in this round
-  if (seat.lastAction && !seat.eliminated) {
-    const act = document.createElement('span');
-    act.className = 'pk-seat-action';
-    act.textContent = seat.lastAction;
-    el.appendChild(act);
-  }
-  if (seat.bet > 0) {
-    const bet = document.createElement('span');
-    bet.className = 'pk-seat-bet';
-    bet.textContent = chips(seat.bet);
-    bet.title = exact(seat.bet);
-    el.appendChild(bet);
-  }
-  if (seat.handName) {
-    const hn = document.createElement('span');
-    hn.className = 'pk-seat-hand';
-    hn.textContent = seat.handName;
-    el.appendChild(hn);
-  }
-
-  return el;
-}
-
-/* ─── Action controls ──────────────────────────────────────────── */
-
-function renderActions(p) {
-  const legal = p.legal;
-  const box = document.createElement('div');
-  box.className = 'pk-actions';
-
-  // Reset the slider whenever this is a genuinely new decision.
-  const key = `${p.handNumber}:${p.street}:${p.currentBet}:${legal.minRaiseTo}`;
-  if (raiseDraftKey !== key) {
-    raiseDraftKey = key;
-    raiseDraft = null;
-  }
-
-  if (legal.canRaise) {
-    const step = Math.max(1, Math.round(p.level.bb / 2));
-    const min = legal.minRaiseTo;
-    const max = legal.maxRaiseTo;
-    if (raiseDraft === null || raiseDraft < min || raiseDraft > max) raiseDraft = min;
-
-    const row = document.createElement('div');
-    row.className = 'pk-raise';
-
-    const amount = document.createElement('div');
-    amount.className = 'pk-raise-amount';
-
-    const slider = document.createElement('input');
-    slider.type = 'range';
-    slider.className = 'pk-slider';
-    slider.min = String(min);
-    slider.max = String(max);
-    slider.step = String(step);
-    slider.value = String(raiseDraft);
-
-    const label = () => {
-      amount.textContent = raiseDraft >= max ? `All-in ${chips(max)}` : chips(raiseDraft);
-      amount.title = exact(raiseDraft);
-    };
-    label();
-
-    slider.addEventListener('input', () => {
-      raiseDraft = Math.min(max, Math.max(min, Number(slider.value)));
-      label();
-      raiseBtn.textContent = raiseLabel();
-    });
-
-    const presets = document.createElement('div');
-    presets.className = 'pk-presets';
-    const potSized = p.currentBet + Math.round(p.pot);
-    const halfPot = p.currentBet + Math.round(p.pot / 2);
-    const options = [
-      ['Min', min],
-      ['½ Pot', halfPot],
-      ['Pot', potSized],
-      ['All-in', max],
-    ];
-    for (const [text, value] of options) {
-      const v = Math.min(max, Math.max(min, value));
-      // Skip a preset that can't do anything different from the others.
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'pk-preset';
-      b.textContent = text;
-      b.addEventListener('click', () => {
-        raiseDraft = v;
-        slider.value = String(v);
-        label();
-        raiseBtn.textContent = raiseLabel();
-      });
-      presets.appendChild(b);
-    }
-
-    row.appendChild(amount);
-    row.appendChild(slider);
-    row.appendChild(presets);
-    box.appendChild(row);
-  }
-
-  const buttons = document.createElement('div');
-  buttons.className = 'pk-buttons';
-
-  const fold = document.createElement('button');
-  fold.type = 'button';
-  fold.className = 'pk-btn pk-btn-fold';
-  fold.textContent = 'Fold';
-  fold.addEventListener('click', () => act({ kind: 'fold' }));
-  buttons.appendChild(fold);
-
-  if (legal.canCheck) {
-    const check = document.createElement('button');
-    check.type = 'button';
-    check.className = 'pk-btn pk-btn-check';
-    check.textContent = 'Check';
-    check.addEventListener('click', () => act({ kind: 'check' }));
-    buttons.appendChild(check);
-  } else if (legal.canCall) {
-    const call = document.createElement('button');
-    call.type = 'button';
-    call.className = 'pk-btn pk-btn-call';
-    call.textContent = legal.callAmount >= legal.maxRaiseTo
-      ? `Call all-in ${chips(legal.callAmount)}`
-      : `Call ${chips(legal.callAmount)}`;
-    call.title = exact(legal.callAmount);
-    call.addEventListener('click', () => act({ kind: 'call' }));
-    buttons.appendChild(call);
-  }
-
-  let raiseBtn = null;
-  const raiseLabel = () => {
-    if (raiseDraft >= legal.maxRaiseTo) return `All-in ${chips(legal.maxRaiseTo)}`;
-    return `${p.currentBet > 0 ? 'Raise to' : 'Bet'} ${chips(raiseDraft)}`;
-  };
-  if (legal.canRaise) {
-    raiseBtn = document.createElement('button');
-    raiseBtn.type = 'button';
-    raiseBtn.className = 'pk-btn pk-btn-raise';
-    raiseBtn.textContent = raiseLabel();
-    raiseBtn.addEventListener('click', () => act({ kind: 'raise', to: raiseDraft }));
-    buttons.appendChild(raiseBtn);
-  }
-
-  box.appendChild(buttons);
-  return box;
-}
-
-function act(action) {
-  raiseDraft = null;
-  raiseDraftKey = '';
-  send({ type: 'game_action', action });
-}
-
-function renderWaiting(p, acting) {
-  const el = document.createElement('div');
-  el.className = 'pk-waiting';
-  const me = p.seats.find((s) => s.isMe);
-
-  if (p.stage === 'complete') el.textContent = 'Tournament over';
-  else if (me && me.eliminated) el.textContent = `You finished ${ordinal(me.place)} — watching the rest`;
-  else if (me && me.folded) el.textContent = 'You folded this hand';
-  else if (me && me.allIn) el.textContent = 'All-in — good luck';
-  else if (acting) el.textContent = `Waiting on ${acting.name}…`;
-  else if (p.stage === 'showdown' || p.stage === 'handover') el.textContent = 'Next hand shortly…';
-  else el.textContent = 'Dealing…';
-
-  return el;
-}
-
-function renderLog(p) {
-  const box = document.createElement('div');
-  box.className = 'pk-log';
-  for (const entry of (p.log || []).slice(-6)) {
-    const line = document.createElement('div');
-    line.className = 'pk-log-line';
-    line.textContent = entry.text;
-    box.appendChild(line);
-  }
-  return box;
-}
-
-/* ─── Turn clock ───────────────────────────────────────────────── */
-
-// The server sends an absolute deadline rather than a countdown, so a
-// slow message or a tab that was backgrounded can't leave the bar out
-// of step with the real clock.
-function startTicker(p) {
-  if (!p.actingDeadline) return;
-  const tick = () => {
-    const fill = document.querySelector('.pk-seat-timer-fill');
-    if (!fill) { clearInterval(tickTimer); tickTimer = null; return; }
-    const deadline = Number(fill.dataset.deadline);
-    const total = Number(fill.dataset.total) || 30000;
-    const remaining = Math.max(0, deadline - Date.now());
-    const pct = Math.max(0, Math.min(100, (remaining / total) * 100));
-    fill.style.width = pct + '%';
-    fill.classList.toggle('is-low', remaining < 8000);
-  };
-  tick();
-  tickTimer = setInterval(tick, 200);
 }
 
 function ordinal(n) {
@@ -496,41 +60,631 @@ function ordinal(n) {
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
+/* ─── Small DOM helpers ────────────────────────────────────────── */
+
+function el(tag, className, parent) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (parent) parent.appendChild(node);
+  return node;
+}
+
+// Only touch the DOM when the value actually changed — otherwise every
+// update restarts CSS transitions on text that didn't move.
+function setText(node, text) {
+  const v = text == null ? '' : String(text);
+  if (node.textContent !== v) node.textContent = v;
+}
+
+function setClass(node, name, on) {
+  node.classList.toggle(name, !!on);
+}
+
+function setHidden(node, hidden) {
+  if (node.hidden !== !!hidden) node.hidden = !!hidden;
+}
+
+/* ─── Cards ────────────────────────────────────────────────────── */
+
+// Mutates an existing card element rather than replacing it, so a card
+// that is already on the table keeps its identity (and doesn't re-run
+// its deal-in animation on every unrelated update).
+function paintCard(node, code, opts = {}) {
+  const prev = node.dataset.code || '';
+  const next = code || '';
+  if (prev === next) {
+    setClass(node, 'is-winning', !!opts.winning);
+    return false;
+  }
+  node.dataset.code = next;
+
+  node.classList.remove('is-back', 'is-slot', 'is-red', 'is-black');
+  node.innerHTML = '';
+
+  if (!next) {
+    node.classList.add('is-slot');
+  } else if (next === '??') {
+    node.classList.add('is-back');
+  } else {
+    const rank = next[0] === 'T' ? '10' : next[0];
+    const suit = next[1];
+    node.classList.add(suit === 'h' || suit === 'd' ? 'is-red' : 'is-black');
+    el('span', 'pk-card-rank', node).textContent = rank;
+    el('span', 'pk-card-suit', node).textContent = SUIT_SYMBOL[suit] || '';
+  }
+
+  setClass(node, 'is-winning', !!opts.winning);
+
+  // Animate only a card appearing or turning face-up, not one clearing
+  // between hands.
+  if (next && opts.animate) {
+    node.classList.remove('is-dealing');
+    void node.offsetWidth; // restart the animation
+    node.classList.add('is-dealing');
+  }
+  return true;
+}
+
+/* ─── Seat geometry ────────────────────────────────────────────── */
+
+// Seats sit on an ellipse, index 0 at the bottom (that's you) and the
+// rest running clockwise, so the player to your left is where they'd be
+// at a real table. A nine-handed table on a phone needs a tighter
+// horizontal spread or the end seats collide with each other.
+function seatPositions(n) {
+  const narrow = window.innerWidth < 560;
+  const rx = narrow ? (n > 6 ? 34 : 36) : 46;
+  const ry = narrow ? (n > 6 ? 43 : 42) : 39;
+
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const t = Math.PI / 2 + (i / n) * Math.PI * 2;
+    out.push({ x: 50 + rx * Math.cos(t), y: 50 + ry * Math.sin(t) });
+  }
+  return out;
+}
+
+/* ─── Mount ────────────────────────────────────────────────────── */
+
+function tableKey(room, p) {
+  return [room.roomCode, p.tableSize, p.seats.map((s) => s.id).join(',')].join('|');
+}
+
+function mount(stage, p) {
+  stage.innerHTML = '';
+
+  const root = el('div', 'pk-wrap', stage);
+  const els = { seats: new Map() };
+
+  // ── top bar ──
+  const bar = el('div', 'pk-topbar', root);
+  els.hand = el('span', 'pk-topbar-item', bar);
+  els.blinds = el('span', 'pk-topbar-item pk-topbar-blinds', bar);
+  els.level = el('span', 'pk-topbar-item', bar);
+
+  // ── table ──
+  const table = el('div', 'pk-table', root);
+  // Seat count drives how tightly the ring has to pack on small screens.
+  table.dataset.seats = String(p.seats.length);
+  els.table = table;
+
+  const felt = el('div', 'pk-felt', table);
+  els.felt = felt;
+
+  els.board = [];
+  const board = el('div', 'pk-board', felt);
+  for (let i = 0; i < 5; i++) {
+    const c = el('div', 'pk-card is-slot', board);
+    c.dataset.code = '';
+    els.board.push(c);
+  }
+
+  els.pot = el('div', 'pk-pot', felt);
+  els.potNote = el('div', 'pk-pot-note', felt);
+
+  // ── seats ──
+  const positions = seatPositions(p.seats.length);
+  const ordered = seatOrder(p);
+  ordered.forEach((seat, i) => {
+    const s = buildSeat(table, seat);
+    s.root.style.left = positions[i].x + '%';
+    s.root.style.top = positions[i].y + '%';
+    els.seats.set(seat.id, s);
+  });
+
+  // ── result, log, then actions ──
+  // Winning a pot gets its own banner rather than an overlay on the
+  // felt: floating it over the table hid the board at exactly the
+  // moment you want to read the winning hand. Sitting here it is still
+  // the loudest thing on screen, and it covers nothing.
+  els.result = el('div', 'pk-result', root);
+  els.resultTitle = el('div', 'pk-result-title', els.result);
+  els.resultSub = el('div', 'pk-result-sub', els.result);
+
+  // The log sits directly above the controls: it's the last thing you
+  // read before you act, so it belongs in that eye path rather than
+  // stranded at the bottom of the page.
+  els.log = el('div', 'pk-log', root);
+  els.actions = el('div', 'pk-actionbar', root);
+
+  view.root = root;
+  view.els = els;
+  view.prev = {};
+  view.lastLogSeq = 0;
+  view.actionSig = null;
+  view.raiseDraft = null;
+  return els;
+}
+
+function seatOrder(p) {
+  const seats = p.seats.slice();
+  const myIdx = seats.findIndex((s) => s.isMe);
+  return myIdx >= 0 ? seats.slice(myIdx).concat(seats.slice(0, myIdx)) : seats;
+}
+
+function buildSeat(parent, seat) {
+  const root = el('div', 'pk-seat', parent);
+  root.dataset.seatId = seat.id;
+  if (seat.isMe) root.classList.add('is-me');
+
+  const cards = el('div', 'pk-seat-cards', root);
+  const cardEls = [el('div', 'pk-card is-mini is-slot', cards), el('div', 'pk-card is-mini is-slot', cards)];
+  cardEls.forEach((c) => { c.dataset.code = ''; });
+
+  const plate = el('div', 'pk-seat-plate', root);
+  const nameRow = el('div', 'pk-seat-namerow', plate);
+  const name = el('span', 'pk-seat-name', nameRow);
+  const bot = el('span', 'pk-seat-bot', nameRow);
+  bot.textContent = 'AI';
+  const style = el('div', 'pk-seat-style', plate);
+  const stack = el('div', 'pk-seat-chips', plate);
+
+  const timer = el('div', 'pk-seat-timer', root);
+  const timerFill = el('div', 'pk-seat-timer-fill', timer);
+
+  const mark = el('span', 'pk-seat-mark', root);
+  const action = el('span', 'pk-seat-action', root);
+  const bet = el('span', 'pk-seat-bet', root);
+  const hand = el('span', 'pk-seat-hand', root);
+  const delta = el('span', 'pk-seat-delta', root);
+
+  return { root, cards: cardEls, name, bot, style, stack, timer, timerFill, mark, action, bet, hand, delta };
+}
+
+/* ─── Update ───────────────────────────────────────────────────── */
+
+function renderHoldem(stage, room) {
+  const p = room.poker;
+  if (!p) { stage.innerHTML = ''; stage.textContent = 'Waiting for the table…'; return; }
+
+  const key = tableKey(room, p);
+  if (view.key !== key || !view.root || !stage.contains(view.root)) {
+    view.key = key;
+    mount(stage, p);
+  }
+
+  const els = view.els;
+  const prev = view.prev;
+
+  // The shared turn banner is redundant next to the poker top bar.
+  const banner = $('turn-banner');
+  if (banner) setText(banner, '');
+
+  updateTopBar(els, p);
+  updateBoard(els, p);
+  updatePot(els, p);
+  updateSeats(els, p);
+  updateResult(els, p);
+  updateLog(els, p);
+  updateActions(els, p);
+
+  view.prev = {
+    handNumber: p.handNumber,
+    street: p.street,
+    stage: p.stage,
+    pot: p.pot,
+    chips: Object.fromEntries(p.seats.map((s) => [s.id, s.chips])),
+    bets: Object.fromEntries(p.seats.map((s) => [s.id, s.bet])),
+  };
+  void prev;
+
+  startTicker(p);
+}
+renderHoldem.incremental = true;
+
+function updateTopBar(els, p) {
+  setText(els.hand, `Hand ${p.handNumber}`);
+  setText(els.blinds, `Blinds ${chips(p.level.sb)} / ${chips(p.level.bb)}`);
+  els.blinds.title = `Blinds ${exact(p.level.sb)} / ${exact(p.level.bb)}`
+    + (p.level.ante ? ` · ante ${exact(p.level.ante)}` : '');
+
+  const n = p.level.handsUntilNext + 1;
+  setText(els.level, `Blinds up in ${n} hand${n === 1 ? '' : 's'}`);
+  // Flag the last hand before the jump — it changes how you should play.
+  setClass(els.level, 'is-soon', n <= 1);
+}
+
+function updateBoard(els, p) {
+  const winning = new Set((p.handResult && p.handResult.winningCards) || []);
+  for (let i = 0; i < 5; i++) {
+    paintCard(els.board[i], p.board[i] || '', {
+      winning: winning.has(p.board[i]),
+      animate: true,
+    });
+  }
+}
+
+function updatePot(els, p) {
+  setText(els.pot, `Pot ${chips(p.pot)}`);
+  els.pot.title = `Pot ${exact(p.pot)}`;
+  if (view.prev.pot !== undefined && p.pot > view.prev.pot) {
+    pulse(els.pot, 'is-bumped');
+  }
+
+  // Side pots are the one bit of pot state that genuinely needs words.
+  const note = p.pots && p.pots.length > 1 ? `${p.pots.length} pots` : '';
+  setText(els.potNote, note);
+  setHidden(els.potNote, !note);
+}
+
+function updateSeats(els, p) {
+  const winning = new Set((p.handResult && p.handResult.winningCards) || []);
+  const newHand = p.handNumber !== view.prev.handNumber;
+
+  for (const seat of p.seats) {
+    const s = els.seats.get(seat.id);
+    if (!s) continue;
+
+    setClass(s.root, 'is-folded', seat.folded);
+    setClass(s.root, 'is-out', seat.eliminated);
+    setClass(s.root, 'is-acting', seat.id === p.actingId);
+    setClass(s.root, 'is-winner', seat.winning);
+    setClass(s.root, 'is-offline', !seat.connected);
+    setClass(s.root, 'is-live', seat.inHand && !seat.folded && !seat.eliminated);
+
+    setText(s.name, seat.name);
+    setHidden(s.bot, !seat.isAI);
+
+    // Playing style is only sent for solo tables; with friends at the
+    // table the bots stay anonymous.
+    setText(s.style, seat.style || '');
+    setHidden(s.style, !seat.style);
+    if (seat.styleHint) s.style.title = seat.styleHint;
+
+    // Stack: count toward the new value so a pot being won or lost is
+    // visible as movement rather than a number that has simply changed.
+    const before = view.prev.chips ? view.prev.chips[seat.id] : undefined;
+    if (seat.eliminated) {
+      setText(s.stack, seat.place ? `Out · ${ordinal(seat.place)}` : 'Out');
+    } else if (before !== undefined && before !== seat.chips && !newHand) {
+      countTo(s.stack, before, seat.chips);
+      showDelta(s.delta, seat.chips - before);
+    } else {
+      setText(s.stack, seat.allIn ? 'All-in' : chips(seat.chips));
+    }
+    s.stack.title = exact(seat.chips);
+
+    // Hole cards
+    const show = seat.inHand && !seat.eliminated && seat.holeCards.length;
+    for (let i = 0; i < 2; i++) {
+      const code = show ? (seat.holeCards[i] || '') : '';
+      paintCard(s.cards[i], code, {
+        winning: seat.winning && winning.has(code),
+        animate: true,
+      });
+      // An empty slot on a seat that isn't in the hand just reads as a
+      // ghost card — hide it rather than outlining nothing.
+      setHidden(s.cards[i], !code);
+    }
+
+    // Dealer / blind marker
+    let markText = '';
+    if (seat.id === p.buttonId) markText = 'D';
+    else if (seat.id === p.sbId) markText = 'SB';
+    else if (seat.id === p.bbId) markText = 'BB';
+    setText(s.mark, markText);
+    setHidden(s.mark, !markText);
+    setClass(s.mark, 'is-button', markText === 'D');
+
+    // Last action, colour-coded so aggression reads at a glance.
+    const act = seat.eliminated ? '' : (seat.lastAction || '');
+    setText(s.action, act);
+    setHidden(s.action, !act);
+    const aggressive = /raise|bet|all-in/i.test(act);
+    const passive = /fold/i.test(act);
+    setClass(s.action, 'is-aggressive', aggressive);
+    setClass(s.action, 'is-passive', passive);
+
+    // Chips in front. When they clear at the end of a street, fly them
+    // to the pot instead of letting them vanish.
+    const prevBet = view.prev.bets ? view.prev.bets[seat.id] : undefined;
+    if (prevBet && !seat.bet && !newHand) {
+      flyToPot(s.bet, els.pot, chips(prevBet));
+    }
+    setText(s.bet, seat.bet > 0 ? chips(seat.bet) : '');
+    setHidden(s.bet, seat.bet <= 0);
+    s.bet.title = exact(seat.bet);
+
+    setText(s.hand, seat.handName || '');
+    setHidden(s.hand, !seat.handName);
+
+    // Turn clock — only the seat on the clock, and only when the server
+    // gave us a deadline (bots don't get one).
+    const onClock = seat.id === p.actingId && !!p.actingDeadline;
+    setHidden(s.timer, !onClock);
+    if (onClock) {
+      s.timerFill.dataset.deadline = String(p.actingDeadline);
+      s.timerFill.dataset.total = String(p.turnMs);
+    }
+  }
+}
+
+function updateResult(els, p) {
+  const r = p.handResult;
+  const showing = !!(r && r.pots && r.pots.length) && (p.stage === 'showdown' || p.stage === 'handover');
+
+  if (!showing) {
+    setClass(els.result, 'is-showing', false);
+    return;
+  }
+
+  const parts = r.pots.map((pot) => {
+    const names = pot.winners.map((w) => w.name).join(' & ');
+    return `${names} ${pot.winners.length > 1 ? 'split' : 'wins'} ${chips(pot.amount)}`;
+  });
+  const hand = r.pots[0].winners[0] && r.pots[0].winners[0].handName;
+
+  setText(els.resultTitle, parts.join(' · '));
+  setText(els.resultSub, hand || (r.showdown ? '' : 'everyone else folded'));
+  setClass(els.result, 'is-showing', true);
+}
+
+function updateLog(els, p) {
+  const entries = p.log || [];
+  // Entries carry a sequence number, so we append exactly what's new —
+  // matching on text would duplicate repeated lines like "Atlas folds."
+  for (const entry of entries) {
+    if (entry.seq === undefined || entry.seq > view.lastLogSeq) {
+      const line = el('div', 'pk-log-line', els.log);
+      line.textContent = entry.text;
+      if (entry.seq !== undefined) view.lastLogSeq = entry.seq;
+    }
+  }
+  // Keep the tail only; the newest line is styled as the current one.
+  while (els.log.children.length > 5) els.log.removeChild(els.log.firstChild);
+  const kids = els.log.children;
+  for (let i = 0; i < kids.length; i++) {
+    setClass(kids[i], 'is-latest', i === kids.length - 1);
+  }
+}
+
+/* ─── Action controls ──────────────────────────────────────────── */
+
+function updateActions(els, p) {
+  const legal = p.legal;
+
+  // Rebuild only when the decision itself changes. Anything more eager
+  // would yank the raise slider out from under a thumb mid-drag.
+  const sig = legal
+    ? `act:${p.handNumber}:${p.street}:${p.currentBet}:${legal.minRaiseTo}:${legal.maxRaiseTo}:${legal.toCall}`
+    : `wait:${p.stage}:${p.actingId}:${p.handNumber}`;
+  if (sig === view.actionSig) return;
+  view.actionSig = sig;
+  view.raiseDraft = null;
+
+  els.actions.innerHTML = '';
+  if (legal) buildActions(els.actions, p, legal);
+  else buildWaiting(els.actions, p);
+}
+
+function buildWaiting(box, p) {
+  const wrap = el('div', 'pk-waiting', box);
+  const me = p.seats.find((s) => s.isMe);
+  const acting = p.seats.find((s) => s.id === p.actingId);
+
+  if (p.stage === 'complete') setText(wrap, 'Tournament over');
+  else if (me && me.eliminated) setText(wrap, `You finished ${ordinal(me.place)} — watching the rest`);
+  else if (me && me.folded) setText(wrap, 'You folded this hand');
+  else if (me && me.allIn) setText(wrap, 'All-in — good luck');
+  else if (acting) setText(wrap, `Waiting on ${acting.name}…`);
+  else if (p.stage === 'showdown' || p.stage === 'handover') setText(wrap, 'Next hand shortly…');
+  else setText(wrap, 'Dealing…');
+}
+
+function buildActions(box, p, legal) {
+  const wrapper = el('div', 'pk-actions', box);
+  let raiseBtn = null;
+
+  const raiseLabel = () => {
+    if (view.raiseDraft >= legal.maxRaiseTo) return `All-in ${chips(legal.maxRaiseTo)}`;
+    return `${p.currentBet > 0 ? 'Raise to' : 'Bet'} ${chips(view.raiseDraft)}`;
+  };
+
+  if (legal.canRaise) {
+    const step = Math.max(1, Math.round(p.level.bb / 2));
+    const min = legal.minRaiseTo;
+    const max = legal.maxRaiseTo;
+    if (view.raiseDraft === null || view.raiseDraft < min || view.raiseDraft > max) view.raiseDraft = min;
+
+    const row = el('div', 'pk-raise', wrapper);
+    const amount = el('div', 'pk-raise-amount', row);
+    const slider = el('input', 'pk-slider', row);
+    slider.type = 'range';
+    slider.min = String(min);
+    slider.max = String(max);
+    slider.step = String(step);
+    slider.value = String(view.raiseDraft);
+
+    const label = () => {
+      setText(amount, view.raiseDraft >= max ? `All-in ${chips(max)}` : chips(view.raiseDraft));
+      amount.title = exact(view.raiseDraft);
+    };
+    label();
+
+    slider.addEventListener('input', () => {
+      view.raiseDraft = Math.min(max, Math.max(min, Number(slider.value)));
+      label();
+      if (raiseBtn) setText(raiseBtn, raiseLabel());
+    });
+
+    const presets = el('div', 'pk-presets', row);
+    const options = [
+      ['Min', min],
+      ['½ Pot', p.currentBet + Math.round(p.pot / 2)],
+      ['Pot', p.currentBet + Math.round(p.pot)],
+      ['All-in', max],
+    ];
+    for (const [text, value] of options) {
+      const v = Math.min(max, Math.max(min, value));
+      const b = el('button', 'pk-preset', presets);
+      b.type = 'button';
+      b.textContent = text;
+      b.addEventListener('click', () => {
+        view.raiseDraft = v;
+        slider.value = String(v);
+        label();
+        if (raiseBtn) setText(raiseBtn, raiseLabel());
+      });
+    }
+  }
+
+  const buttons = el('div', 'pk-buttons', wrapper);
+
+  const fold = el('button', 'pk-btn pk-btn-fold', buttons);
+  fold.type = 'button';
+  fold.textContent = 'Fold';
+  fold.addEventListener('click', () => act({ kind: 'fold' }));
+
+  if (legal.canCheck) {
+    const check = el('button', 'pk-btn pk-btn-check', buttons);
+    check.type = 'button';
+    check.textContent = 'Check';
+    check.addEventListener('click', () => act({ kind: 'check' }));
+  } else if (legal.canCall) {
+    const call = el('button', 'pk-btn pk-btn-call', buttons);
+    call.type = 'button';
+    call.textContent = legal.callAmount >= legal.maxRaiseTo
+      ? `Call all-in ${chips(legal.callAmount)}`
+      : `Call ${chips(legal.callAmount)}`;
+    call.title = exact(legal.callAmount);
+    call.addEventListener('click', () => act({ kind: 'call' }));
+  }
+
+  if (legal.canRaise) {
+    raiseBtn = el('button', 'pk-btn pk-btn-raise', buttons);
+    raiseBtn.type = 'button';
+    raiseBtn.textContent = raiseLabel();
+    raiseBtn.addEventListener('click', () => act({ kind: 'raise', to: view.raiseDraft }));
+  }
+}
+
+function act(action) {
+  view.raiseDraft = null;
+  view.actionSig = null;
+  send({ type: 'game_action', action });
+}
+
+/* ─── Motion ───────────────────────────────────────────────────── */
+
+function pulse(node, cls) {
+  node.classList.remove(cls);
+  void node.offsetWidth;
+  node.classList.add(cls);
+}
+
+// Count a stack toward its new value. Short enough not to lag the game,
+// long enough that the eye catches which stacks moved.
+function countTo(node, from, to) {
+  const start = performance.now();
+  const dur = 550;
+  if (node._countRaf) cancelAnimationFrame(node._countRaf);
+  const step = (now) => {
+    const t = Math.min(1, (now - start) / dur);
+    const eased = 1 - Math.pow(1 - t, 3);
+    setText(node, chips(Math.round(from + (to - from) * eased)));
+    if (t < 1) node._countRaf = requestAnimationFrame(step);
+    else { node._countRaf = null; setText(node, chips(to)); }
+  };
+  node._countRaf = requestAnimationFrame(step);
+}
+
+function showDelta(node, amount) {
+  if (!amount) return;
+  setText(node, (amount > 0 ? '+' : '') + chips(amount));
+  setClass(node, 'is-up', amount > 0);
+  setClass(node, 'is-down', amount < 0);
+  pulse(node, 'is-flying');
+}
+
+// Send the chips in front of a seat to the pot when the street closes.
+// The badge itself is about to be hidden, so we animate a throwaway
+// clone along the path instead.
+function flyToPot(betEl, potEl, label) {
+  if (!betEl || !potEl || !view.els) return;
+  const from = betEl.getBoundingClientRect();
+  const to = potEl.getBoundingClientRect();
+  if (!from.width || !to.width) return;
+
+  const host = view.els.table;
+  const hostRect = host.getBoundingClientRect();
+
+  const ghost = el('span', 'pk-chip-ghost', host);
+  ghost.textContent = label;
+  ghost.style.left = (from.left - hostRect.left) + 'px';
+  ghost.style.top = (from.top - hostRect.top) + 'px';
+
+  const dx = (to.left + to.width / 2) - (from.left + from.width / 2);
+  const dy = (to.top + to.height / 2) - (from.top + from.height / 2);
+
+  requestAnimationFrame(() => {
+    ghost.style.transform = `translate(${dx}px, ${dy}px) scale(0.6)`;
+    ghost.style.opacity = '0';
+  });
+  setTimeout(() => ghost.remove(), 600);
+}
+
+/* ─── Turn clock ───────────────────────────────────────────────── */
+
+// The server sends an absolute deadline rather than a countdown, so a
+// slow message or a backgrounded tab can't leave the bar out of step
+// with the real clock.
+function startTicker(p) {
+  clearInterval(view.tickTimer);
+  view.tickTimer = null;
+  if (!p.actingDeadline) return;
+
+  const tick = () => {
+    const fill = view.root && view.root.querySelector('.pk-seat-timer:not([hidden]) .pk-seat-timer-fill');
+    if (!fill) { clearInterval(view.tickTimer); view.tickTimer = null; return; }
+    const deadline = Number(fill.dataset.deadline);
+    const total = Number(fill.dataset.total) || 30000;
+    const remaining = Math.max(0, deadline - Date.now());
+    fill.style.width = Math.max(0, Math.min(100, (remaining / total) * 100)) + '%';
+    setClass(fill, 'is-low', remaining < 8000);
+  };
+  tick();
+  view.tickTimer = setInterval(tick, 200);
+}
+
 /* ─── Tournament standings, shown on the game-over screen ──────── */
 
-function renderHoldemStandings(el, room) {
+function renderHoldemStandings(host, room) {
   const result = room.result;
-  el.innerHTML = '';
+  host.innerHTML = '';
   if (!result || !result.standings) return;
 
   for (const s of result.standings) {
-    const row = document.createElement('div');
-    row.className = 'pk-standing';
+    const row = el('div', 'pk-standing', host);
     if (s.place === 1) row.classList.add('is-first');
     if (s.id === state.playerId) row.classList.add('is-me');
 
-    const place = document.createElement('span');
-    place.className = 'pk-standing-place';
-    place.textContent = ordinal(s.place);
+    el('span', 'pk-standing-place', row).textContent = ordinal(s.place);
 
-    const name = document.createElement('span');
-    name.className = 'pk-standing-name';
+    const name = el('span', 'pk-standing-name', row);
     name.textContent = s.name + (s.id === state.playerId ? ' (you)' : '');
-    if (s.isAI) {
-      const bot = document.createElement('span');
-      bot.className = 'pk-seat-bot';
-      bot.textContent = 'AI';
-      name.appendChild(bot);
-    }
+    if (s.isAI) el('span', 'pk-seat-bot', name).textContent = 'AI';
 
-    const chipCount = document.createElement('span');
-    chipCount.className = 'pk-standing-chips';
-    chipCount.textContent = s.place === 1 ? chips(s.chips) : '';
-
-    row.appendChild(place);
-    row.appendChild(name);
-    row.appendChild(chipCount);
-    el.appendChild(row);
+    el('span', 'pk-standing-chips', row).textContent = s.place === 1 ? chips(s.chips) : '';
   }
 }
 
