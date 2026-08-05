@@ -1431,8 +1431,41 @@ body {
 
 /* ─── Poker ─────────────────────────────────────────────────────── */
 
-/* The nine-handed table needs more room than the default column. */
-#game-screen .container:has(.pk-wrap) { max-width: 940px; }
+/* ── Shell ──
+   The table is the game; everything else has to earn its pixels. On the
+   poker screen the shared chrome comes off: the game's own title (you
+   just picked it from the tile), the turn banner (this renderer draws
+   its own status, so the element was reserving empty space), and the
+   4.5rem of top padding that existed only to clear a floating Leave
+   button — the top bar now sits beside that button instead.
+   Measured on a 1100x900 window, that reclaimed 174px of vertical
+   chrome and stopped the page scrolling. */
+
+#game-screen:has(.pk-wrap) {
+  height: 100dvh;
+  padding: 0.75rem;
+  padding-left: max(0.75rem, env(safe-area-inset-left));
+  padding-right: max(0.75rem, env(safe-area-inset-right));
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  /* Nothing should scroll — but if a window is short enough that the
+     table hits its floor, let it rather than clipping the controls. */
+  overflow: auto;
+}
+#game-screen:has(.pk-wrap) .game-header { display: none; }
+#game-screen:has(.pk-wrap) .scoreboard { display: none; }
+
+#game-screen .container:has(.pk-wrap) {
+  max-width: 1200px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+#game-screen .game-stage:has(.pk-wrap) {
+  flex: 1;
+  min-height: 0;
+  gap: 0;
+  margin-bottom: 0;
+}
 
 /* The `hidden` attribute only sets `display: none` at user-agent
    weight, so any element below with an explicit `display` would ignore
@@ -1445,19 +1478,25 @@ body {
 .pk-wrap {
   align-self: stretch;
   width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: 0.5rem;
 }
 
+/* Shares its row with the fixed Leave button, hence the left inset. */
 .pk-topbar {
+  flex: none;
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
-  gap: 0.5rem;
+  gap: 1rem;
+  min-height: 1.9rem;
+  padding-left: 6rem;
   font-size: 0.76rem;
   letter-spacing: 0.06em;
   color: var(--text-secondary);
+  white-space: nowrap;
 }
 .pk-topbar-blinds { color: var(--accent); }
 .pk-topbar-item.is-soon { color: var(--danger); }
@@ -1467,13 +1506,14 @@ body {
 .pk-table {
   position: relative;
   width: 100%;
-  aspect-ratio: 16 / 9;
+  flex: 1;
+  min-height: 240px;
   margin: 0 auto;
 }
 
 .pk-felt {
   position: absolute;
-  inset: 17% 15%;
+  inset: 15% 13%;
   border-radius: 50% / 50%;
   background: radial-gradient(ellipse at 50% 40%, #1d3b2f 0%, #162c24 55%, #102019 100%);
   border: 2px solid rgba(212, 168, 67, 0.22);
@@ -1486,10 +1526,10 @@ body {
   padding: 0.5rem;
 }
 
-.pk-board { display: flex; gap: 0.32rem; }
+.pk-board { display: flex; gap: 0.38rem; }
 
 .pk-pot {
-  font-size: 0.9rem;
+  font-size: clamp(0.9rem, 1.6vw, 1.15rem);
   font-weight: 600;
   letter-spacing: 0.04em;
   color: var(--accent);
@@ -1508,6 +1548,9 @@ body {
    moment on the table rather than a line of small print in the felt. */
 
 .pk-result {
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
   text-align: center;
   padding: 0.6rem 1rem;
   border-radius: var(--radius-lg);
@@ -1548,7 +1591,7 @@ body {
 /* ── Cards ── */
 
 .pk-card {
-  width: clamp(1.7rem, 4.2vw, 2.3rem);
+  width: clamp(2.1rem, 5vw, 3rem);
   aspect-ratio: 5 / 7;
   border-radius: 4px;
   background: #f2ece0;
@@ -1563,8 +1606,8 @@ body {
   user-select: none;
   flex: none;
 }
-.pk-card-rank { font-size: clamp(0.62rem, 1.9vw, 0.92rem); }
-.pk-card-suit { font-size: clamp(0.56rem, 1.7vw, 0.82rem); }
+.pk-card-rank { font-size: clamp(0.76rem, 2.2vw, 1.2rem); }
+.pk-card-suit { font-size: clamp(0.68rem, 2vw, 1.05rem); }
 .pk-card.is-red { color: #b23a34; }
 .pk-card.is-black { color: #14100a; }
 
@@ -1587,11 +1630,11 @@ body {
 /* Your own hand is the single most important thing on screen, so it is
    the largest — bigger than the community cards, not smaller. */
 .pk-seat.is-me .pk-card.is-mini {
-  width: clamp(2.1rem, 5.4vw, 3rem);
+  width: clamp(2.5rem, 6.2vw, 3.6rem);
   border-radius: 5px;
 }
-.pk-seat.is-me .pk-card-rank { font-size: clamp(0.8rem, 2.4vw, 1.15rem); }
-.pk-seat.is-me .pk-card-suit { font-size: clamp(0.7rem, 2.1vw, 1rem); }
+.pk-seat.is-me .pk-card-rank { font-size: clamp(0.95rem, 2.8vw, 1.45rem); }
+.pk-seat.is-me .pk-card-suit { font-size: clamp(0.85rem, 2.5vw, 1.25rem); }
 
 /* ── Seats ── */
 
@@ -1609,13 +1652,15 @@ body {
 .pk-seat-cards { display: flex; gap: 0.16rem; min-height: 0.5rem; }
 
 .pk-seat-plate {
+  position: relative;
   width: 100%;
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 0.3rem 0.35rem;
   text-align: center;
-  overflow: hidden;
+  /* No overflow clip here — the blind marker hangs off the right edge,
+     and the name truncates itself. */
 }
 
 .pk-seat-namerow {
@@ -1698,8 +1743,9 @@ body {
 
 .pk-seat-mark {
   position: absolute;
-  top: -0.3rem;
-  right: -0.3rem;
+  top: 50%;
+  right: -0.55rem;
+  transform: translateY(-50%);
   font-size: 0.55rem;
   font-weight: 600;
   letter-spacing: 0.03em;
@@ -1819,17 +1865,23 @@ body {
    screen at 2.5:1 contrast; it's now readable, and sits directly above
    the controls because it's the last thing you read before acting. */
 
+/* Two lines, not five. Each seat already shows what that player just
+   did; the log only has to carry the sequence and the amounts. */
 .pk-log {
-  font-size: 0.8rem;
-  line-height: 1.55;
+  flex: none;
+  font-size: 0.78rem;
+  line-height: 1.5;
   color: var(--text-secondary);
   text-align: center;
-  min-height: 3.2rem;
+  height: 2.4rem;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
+  overflow: hidden;
 }
 .pk-log-line {
+  max-width: 640px;
+  margin: 0 auto;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1843,9 +1895,21 @@ body {
 
 /* ── Actions ── */
 
-.pk-actionbar { min-height: 3.4rem; }
+.pk-actionbar {
+  flex: none;
+  min-height: 8.6rem;
+  display: flex;
+  flex-direction: column;
+  /* Centred so the waiting line and the controls occupy the same
+     place — the zone is reserved either way, and a message stranded
+     at the bottom of empty space reads as a mistake. */
+  justify-content: center;
+}
 
 .pk-actions {
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
@@ -1951,14 +2015,13 @@ body {
 }
 .pk-btn-raise:hover { filter: brightness(1.08); }
 
+/* Waiting is not an event — it gets a quiet line inside the reserved
+   action space, not a panel the size of the controls themselves. */
 .pk-waiting {
   text-align: center;
   font-size: 0.82rem;
   color: var(--text-secondary);
-  padding: 1rem 0.75rem;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  padding: 0.9rem 0.75rem;
 }
 
 /* ── Final standings ── */
@@ -1996,8 +2059,7 @@ body {
      log and the action buttons all have to fit above the fold, because
      a player who has to scroll to fold has already lost the hand. */
   .pk-wrap { gap: 0.45rem; }
-  .pk-table { aspect-ratio: 5 / 6; }
-  .pk-felt { inset: 18% 10%; }
+  .pk-felt { inset: 16% 9%; }
   .pk-seat { width: clamp(4rem, 22vw, 5.2rem); }
   /* Nine seats around a phone-width ring need to be narrower still,
      or the ones at the sides overlap each other. */
