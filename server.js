@@ -39,6 +39,20 @@ app.get('/api/games', (req, res) => {
 
 const rooms = new Map();
 
+// Whether anyone is mid-game right now. The auto-deploy timer asks
+// before restarting: rooms live in memory, so a restart during a
+// tournament destroys it. Reported as counts rather than any room
+// detail — this is public.
+app.get('/api/status', (req, res) => {
+  let active = 0;
+  let players = 0;
+  for (const room of rooms.values()) {
+    if (room.state === 'playing') active++;
+    players += room.connectedPlayerCount();
+  }
+  res.json({ rooms: rooms.size, activeGames: active, connectedPlayers: players, busy: active > 0 });
+});
+
 // Avoid 0/O and 1/I/L to keep room codes legible when typed off a screen.
 const ROOM_CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ';
 
