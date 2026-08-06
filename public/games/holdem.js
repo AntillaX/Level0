@@ -89,40 +89,85 @@ function setHidden(node, hidden) {
 // Mutates an existing card element rather than replacing it, so a card
 // that is already on the table keeps its identity (and doesn't re-run
 // its deal-in animation on every unrelated update).
+function restartAnim(node, cls) {
+  node.classList.remove(cls);
+  void node.offsetWidth; // force a reflow so the animation replays
+  node.classList.add(cls);
+}
+
 function paintCard(node, code, opts = {}) {
   const prev = node.dataset.code || '';
   const next = code || '';
   if (prev === next) {
     setClass(node, 'is-winning', !!opts.winning);
-    return false;
+    return;
   }
   node.dataset.code = next;
 
-  node.classList.remove('is-back', 'is-slot', 'is-red', 'is-black');
-  node.innerHTML = '';
+  // A card turning face-up is a different event from a card arriving,
+  // and they shouldn't look the same: the flop is *dealt*, a showdown
+  // hand is *revealed*. Same animation for both made a showdown read
+  // as though fresh cards had appeared.
+  const revealing = prev === '??' && next && next !== '??';
+  const dealing = !prev && next;
 
-  if (!next) {
-    node.classList.add('is-slot');
-  } else if (next === '??') {
-    node.classList.add('is-back');
-  } else {
+  const paint = () => {
+    node.classList.remove('is-back', 'is-slot', 'is-red', 'is-black');
+    node.innerHTML = '';
+
+    if (!next) {
+      node.classList.add('is-slot');
+      return;
+    }
+    if (next === '??') {
+      node.classList.add('is-back');
+      return;
+    }
     const rank = next[0] === 'T' ? '10' : next[0];
     const suit = next[1];
     node.classList.add(suit === 'h' || suit === 'd' ? 'is-red' : 'is-black');
-    el('span', 'pk-card-rank', node).textContent = rank;
-    el('span', 'pk-card-suit', node).textContent = SUIT_SYMBOL[suit] || '';
+
+    // Corner index plus a large centre pip, the way a real card reads.
+    // At seat size the corner is what you actually parse.
+    const index = el('span', 'pk-card-index', node);
+    el('span', 'pk-card-rank', index).textContent = rank;
+    el('span', 'pk-card-suit', index).textContent = SUIT_SYMBOL[suit] || '';
+    el('span', 'pk-card-pip', node).textContent = SUIT_SYMBOL[suit] || '';
+  };
+
+  if (revealing && opts.animate) {
+    // Turn edge-on, swap the face at the midpoint, turn back. The token
+    // guards against the card changing again mid-flip (the hand ending,
+    // say) — without it a late timeout would paint a stale face over
+    // whatever the card had since become.
+    const token = (node._paintToken = (node._paintToken || 0) + 1);
+    const delay = opts.delay || 0;
+    node.style.animationDelay = delay + 'ms';
+    restartAnim(node, 'is-flipping');
+    setTimeout(() => { if (node._paintToken === token) paint(); }, 150 + delay);
+  } else if (dealing && opts.animate) {
+    node._paintToken = (node._paintToken || 0) + 1;
+    paint();
+    node.style.animationDelay = (opts.delay || 0) + 'ms';
+    restartAnim(node, 'is-dealing');
+  } else {
+    node._paintToken = (node._paintToken || 0) + 1;
+    paint();
   }
 
   setClass(node, 'is-winning', !!opts.winning);
+}
 
-  // Animate only a card appearing or turning face-up, not one clearing
-  // between hands.
-  if (next && opts.animate) {
-    node.classList.remove('is-dealing');
-    void node.offsetWidth; // restart the animation
-    node.classList.add('is-dealing');
-  }
-  return true;
+// Bet sizes are easier to compare as colour than as digits, so chips
+// are tiered against the big blind rather than an absolute amount —
+// a "big bet" means something different at every blind level.
+function chipTier(amount, bb) {
+  const r = amount / Math.max(1, bb || 1);
+  if (r >= 50) return '5';
+  if (r >= 20) return '4';
+  if (r >= 8) return '3';
+  if (r >= 3) return '2';
+  return '1';
 }
 
 /* ─── Seat geometry ────────────────────────────────────────────── */
@@ -183,6 +228,9 @@ function mount(stage, p) {
   }
 
   els.pot = el('div', 'pk-pot', felt);
+  el('i', 'pk-chip', els.pot);
+  el('span', 'pk-pot-label', els.pot).textContent = 'Pot';
+  els.potAmount = el('span', 'pk-pot-amt', els.pot);
   els.potNote = el('div', 'pk-pot-note', felt);
 
   // ── seats ──
@@ -251,10 +299,12 @@ function buildSeat(parent, seat) {
   const mark = el('span', 'pk-seat-mark', plate);
   const action = el('span', 'pk-seat-action', root);
   const bet = el('span', 'pk-seat-bet', root);
+  el('i', 'pk-chip', bet);
+  const betAmount = el('span', 'pk-seat-bet-amt', bet);
   const hand = el('span', 'pk-seat-hand', root);
   const delta = el('span', 'pk-seat-delta', root);
 
-  return { root, cards: cardEls, name, bot, style, stack, timer, timerFill, mark, action, bet, hand, delta };
+  return { root, cards: cardEls, name, bot, style, stack, timer, timerFill, mark, action, bet, betAmount, hand, delta };
 }
 
 /* ─── Update ───────────────────────────────────────────────────── */
@@ -281,6 +331,7 @@ function renderHoldem(stage, room) {
   updateActions(els, p);
 
   view.prev = {
+    levelIndex: p.level.index,
     handNumber: p.handNumber,
     street: p.street,
     stage: p.stage,
@@ -311,6 +362,10 @@ function updateTopBar(els, p) {
   els.blinds.title = `Blinds ${exact(p.level.sb)} / ${exact(p.level.bb)}`
     + (p.level.ante ? ` · ante ${exact(p.level.ante)}` : '');
 
+  if (view.prev.levelIndex !== undefined && p.level.index !== view.prev.levelIndex) {
+    restartAnim(els.blinds, 'is-raised');
+  }
+
   setText(els.level, narrow ? `↑ ${n}` : `Blinds up in ${n} hand${n === 1 ? '' : 's'}`);
   els.level.title = `Blinds rise in ${n} hand${n === 1 ? '' : 's'}`;
   // Flag the last hand before the jump — it changes how you should play.
@@ -319,16 +374,24 @@ function updateTopBar(els, p) {
 
 function updateBoard(els, p) {
   const winning = new Set((p.handResult && p.handResult.winningCards) || []);
+  // The flop is three cards, and landing them simultaneously turns a
+  // street change into a single blink. Dealt one after another, the
+  // eye actually registers the board changing.
+  let arriving = 0;
   for (let i = 0; i < 5; i++) {
-    paintCard(els.board[i], p.board[i] || '', {
-      winning: winning.has(p.board[i]),
+    const next = p.board[i] || '';
+    const isNew = next && (els.board[i].dataset.code || '') !== next;
+    paintCard(els.board[i], next, {
+      winning: winning.has(next),
       animate: true,
+      delay: isNew ? (arriving++) * 100 : 0,
     });
   }
 }
 
 function updatePot(els, p) {
-  setText(els.pot, `Pot ${chips(p.pot)}`);
+  setText(els.potAmount, chips(p.pot));
+  els.pot.dataset.tier = chipTier(p.pot, p.level.bb);
   els.pot.title = `Pot ${exact(p.pot)}`;
   if (view.prev.pot !== undefined && p.pot > view.prev.pot) {
     pulse(els.pot, 'is-bumped');
@@ -343,6 +406,9 @@ function updatePot(els, p) {
 function updateSeats(els, p) {
   const winning = new Set((p.handResult && p.handResult.winningCards) || []);
   const newHand = p.handNumber !== view.prev.handNumber;
+  // Hands turn over one after another at a showdown rather than all at
+  // once, so you can read each one as it lands.
+  let revealing = 0;
 
   for (const seat of p.seats) {
     const s = els.seats.get(seat.id);
@@ -379,11 +445,16 @@ function updateSeats(els, p) {
 
     // Hole cards
     const show = seat.inHand && !seat.eliminated && seat.holeCards.length;
+    const turningOver = show && (s.cards[0].dataset.code || '') === '??'
+      && seat.holeCards[0] && seat.holeCards[0] !== '??';
+    const revealDelay = turningOver ? (revealing++) * 130 : 0;
+
     for (let i = 0; i < 2; i++) {
       const code = show ? (seat.holeCards[i] || '') : '';
       paintCard(s.cards[i], code, {
         winning: seat.winning && winning.has(code),
         animate: true,
+        delay: revealDelay,
       });
       // An empty slot on a seat that isn't in the hand just reads as a
       // ghost card — hide it rather than outlining nothing.
@@ -415,9 +486,10 @@ function updateSeats(els, p) {
     // to the pot instead of letting them vanish.
     const prevBet = view.prev.bets ? view.prev.bets[seat.id] : undefined;
     if (prevBet && !seat.bet && !newHand) {
-      flyToPot(s.bet, els.pot, chips(prevBet));
+      flyChips(s.bet, els.pot, chips(prevBet));
     }
-    setText(s.bet, seat.bet > 0 ? chips(seat.bet) : '');
+    setText(s.betAmount, seat.bet > 0 ? chips(seat.bet) : '');
+    s.bet.dataset.tier = chipTier(seat.bet, p.level.bb);
     setHidden(s.bet, seat.bet <= 0);
     s.bet.title = exact(seat.bet);
 
@@ -438,10 +510,23 @@ function updateSeats(els, p) {
 function updateResult(els, p) {
   const r = p.handResult;
   const showing = !!(r && r.pots && r.pots.length) && (p.stage === 'showdown' || p.stage === 'handover');
+  const wasShowing = view.resultShowing;
+  view.resultShowing = showing;
 
   if (!showing) {
     setClass(els.result, 'is-showing', false);
     return;
+  }
+
+  // Send the pot to whoever won it, once, as the result appears.
+  if (!wasShowing) {
+    for (const pot of r.pots) {
+      const share = Math.round(pot.amount / pot.winners.length);
+      for (const w of pot.winners) {
+        const seat = els.seats.get(w.id);
+        if (seat) flyChips(els.pot, seat.root, chips(share), 'is-payout');
+      }
+    }
   }
 
   const parts = r.pots.map((pot) => {
@@ -632,20 +717,23 @@ function showDelta(node, amount) {
   pulse(node, 'is-flying');
 }
 
-// Send the chips in front of a seat to the pot when the street closes.
-// The badge itself is about to be hidden, so we animate a throwaway
-// clone along the path instead.
-function flyToPot(betEl, potEl, label) {
-  if (!betEl || !potEl || !view.els) return;
-  const from = betEl.getBoundingClientRect();
-  const to = potEl.getBoundingClientRect();
+// Chips travelling between two points on the table. Used both ways:
+// bets going to the pot when a street closes, and the pot going to
+// whoever won it. The second half was missing entirely — chips flowed
+// in and then the pot simply reset, so the payoff moment, the whole
+// point of the hand, had no motion at all.
+function flyChips(fromEl, toEl, label, cls) {
+  if (!fromEl || !toEl || !view.els) return;
+  const from = fromEl.getBoundingClientRect();
+  const to = toEl.getBoundingClientRect();
   if (!from.width || !to.width) return;
 
   const host = view.els.table;
   const hostRect = host.getBoundingClientRect();
 
-  const ghost = el('span', 'pk-chip-ghost', host);
-  ghost.textContent = label;
+  const ghost = el('span', 'pk-chip-ghost' + (cls ? ' ' + cls : ''), host);
+  el('i', 'pk-chip', ghost);
+  el('span', 'pk-chip-ghost-amt', ghost).textContent = label;
   ghost.style.left = (from.left - hostRect.left) + 'px';
   ghost.style.top = (from.top - hostRect.top) + 'px';
 
@@ -653,10 +741,10 @@ function flyToPot(betEl, potEl, label) {
   const dy = (to.top + to.height / 2) - (from.top + from.height / 2);
 
   requestAnimationFrame(() => {
-    ghost.style.transform = `translate(${dx}px, ${dy}px) scale(0.6)`;
+    ghost.style.transform = `translate(${dx}px, ${dy}px) scale(0.7)`;
     ghost.style.opacity = '0';
   });
-  setTimeout(() => ghost.remove(), 600);
+  setTimeout(() => ghost.remove(), 700);
 }
 
 /* ─── Turn clock ───────────────────────────────────────────────── */
