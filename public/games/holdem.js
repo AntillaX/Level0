@@ -176,33 +176,15 @@ function chipTier(amount, bb) {
 // rest running clockwise, so the player to your left is where they'd be
 // at a real table. A nine-handed table on a phone needs a tighter
 // horizontal spread or the end seats collide with each other.
-function seatPositions(n, box, caps, blocked, withUsable) {
-  // Seats belong *on* the rail. Pushed further out they float in empty
-  // space, which wastes room and lengthens the eye path between an
-  // opponent and the board you're reading them against.
-  //
-  // The radii follow the table's actual proportions rather than a
-  // portrait/landscape switch, so the ring stays sane at any shape a
-  // window or a rotated phone produces. A seat is a fixed-width box, so
-  // the wider the table the smaller a share of it each seat needs.
-  const aspect = box.w / Math.max(1, box.h);
-  const crowded = n > 6;
-
-  // Roughly: how much of the half-width one seat occupies.
-  const seatShare = (crowded ? 0.13 : 0.16) / Math.max(0.55, Math.min(2.4, aspect));
-  const rx = clamp(50 - seatShare * 100, 32, caps.maxRx);
-  const ry = clamp(aspect > 1.15 ? 40 : 44, 20, caps.maxRy);
-
-  // Space seats by arc length, not by angle. Equal angles bunch seats up
-  // where the ellipse curves hardest — unnoticeable on a roundish table,
-  // but on a flat one (a phone in landscape) the seats at the left and
-  // right extremes pile into each other.
-  //
-  // `blocked` marks the stretch of perimeter level with the board as a
-  // no-seat zone. Walking only the usable perimeter, and dropping a seat
-  // every 1/n of it, keeps seats off the board *and* evenly spaced. The
-  // alternative — placing them uniformly and nudging the offenders
-  // afterwards — just moves the collision somewhere else.
+// Seat positions on an ellipse of the given radii (as percentages of
+// the table box), spaced by arc length rather than by angle. Equal
+// angles bunch seats where an ellipse curves hardest — unnoticeable on
+// a round table, but on a flat one they pile into each other.
+//
+// `blocked` marks the stretch of perimeter level with the board as a
+// no-seat zone, so the ring routes around the board instead of the
+// board shrinking to dodge seats.
+function seatPositions(n, box, rxPct, ryPct, blocked) {
   const walk = (useBlocked) => {
     const SAMPLES = 1440;
     const pts = [];
@@ -213,8 +195,8 @@ function seatPositions(n, box, caps, blocked, withUsable) {
 
     for (let i = 0; i <= SAMPLES; i++) {
       const t = Math.PI / 2 + (i / SAMPLES) * Math.PI * 2;
-      const x = rx * Math.cos(t);
-      const y = ry * Math.sin(t);
+      const x = rxPct * Math.cos(t);
+      const y = ryPct * Math.sin(t);
       const sx = (x * box.w) / 100;
       const sy = (y * box.h) / 100;
       const ok = !useBlocked || !blocked(sx, sy);
@@ -232,7 +214,6 @@ function seatPositions(n, box, caps, blocked, withUsable) {
   // to the full ring — a cramped ring beats seats stacked on each other.
   if (pts.length < n * 4 || total <= 0) ({ pts, total } = walk(false));
 
-  const usable = total;
   const out = [];
   for (let k = 0; k < n; k++) {
     const target = (k / n) * total;
@@ -244,111 +225,243 @@ function seatPositions(n, box, caps, blocked, withUsable) {
     }
     out.push({ x: 50 + pts[lo].x, y: 50 + pts[lo].y });
   }
-  return withUsable ? { points: out, usable } : out;
+  out.usable = total;
+  return out;
 }
 
 function clamp(v, lo, hi) {
   return v < lo ? lo : (v > hi ? hi : v);
 }
 
-// Everything on the table is sized from one unit derived from the table
-// box, rather than from the viewport. Viewport units meant that on a
-// phone every clamp bottomed out at its minimum independently — the
-// board landed at 33.6px while an opponent's cards landed at 17.6px,
-// which is why you couldn't read them. Proportions now hold at any size
-// or aspect ratio.
-function applyMetrics(els, seatCount, depth) {
-  depth = depth || 0;
+// Left to stretch into whatever box the window gives it, the felt became
+// an egg in portrait and a sliver in landscape, and the seat ring
+// degenerated with it — seats piling onto the far ends, sitting on the
+// felt and on each other. So the table is held to a sane shape, and
+// spare box space becomes margin rather than distortion.
+//
+// Which shape is sane depends on the box. In landscape it's the wide
+// oval everyone pictures. In portrait, holding to that shape capped the
+// table at the box's *width* and left a third of a phone screen empty
+// below it, so the table stands up instead — the same thing every mobile
+// poker room does, and the longer ring seats nine without shrinking them.
+// A poker table is roughly 2:1. Held to exactly that in a very flat box
+// it came out a small oval adrift in black, using barely a third of the
+// width, so the ceiling gives a little when the box itself is flatter —
+// never far enough to turn the felt into a canoe.
+function maxAspect(w, h) {
+  return clamp((w / h) * 0.85, 2.2, 3.3);
+}
+// How far past the rail a seat's centre sits, as a fraction of the seat.
+// At 0.5 the seat would clear the felt entirely and float; at 0 it would
+// be centred on the rail with most of the plate on the green.
+const SEAT_OUT = 0.3;
+// Seat count matters too: nine seats need the perimeter a tall table
+// buys, five don't, and stretching a five-handed table to the same shape
+// just leaves a long empty egg.
+function minAspect(w, h, seatCount) {
+  if (w >= h) return 1.15;
+  return seatCount > 6 ? 0.66 : 0.88;
+}
+
+// Table and ring geometry for a given card unit. Pure, so the caller
+// can try a few units and pick one that actually fits.
+function tableGeometry(unit, w, h, seatWRatio, seatHRatio, seatCount) {
+  const seatW = unit * seatWRatio;
+  const seatH = unit * seatHRatio;
+  const MIN_ASPECT = minAspect(w, h, seatCount);
+  const MAX_ASPECT = maxAspect(w, h);
+
+  // The table comes first: as large as the box allows once room is left
+  // around it for seats, then held to a table-like aspect.
+  let railRx = Math.max(unit * 2, w / 2 - seatW * 0.62);
+  let railRy = Math.max(unit * 1.8, h / 2 - seatH * 0.68);
+
+  // Grow the short side before shrinking the long one — shrinking first
+  // turned the table into a postage stamp adrift in a wide box.
+  const roomRx = w / 2 - seatW * 0.62;
+  const roomRy = h / 2 - seatH * 0.68;
+  if (railRx / railRy > MAX_ASPECT) {
+    railRy = Math.min(roomRy, railRx / MAX_ASPECT);
+    if (railRx / railRy > MAX_ASPECT) railRx = railRy * MAX_ASPECT;
+  } else if (railRx / railRy < MIN_ASPECT) {
+    railRx = Math.min(roomRx, railRy * MIN_ASPECT);
+    if (railRx / railRy < MIN_ASPECT) railRy = railRx / MIN_ASPECT;
+  }
+  railRx = Math.max(unit * 2, railRx);
+  railRy = Math.max(unit * 1.8, railRy);
+
+  // Seats straddle the rail, the way players sit at a table: pushed out
+  // far enough that the nameplate is mostly off the felt, close enough
+  // that it still reads as belonging to that side of the table.
+  const geom = {
+    seatW,
+    seatH,
+    railRx,
+    railRy,
+    ringRx: railRx + seatW * SEAT_OUT,
+    ringRy: railRy + seatH * SEAT_OUT,
+  };
+
+  // A seat is centred on the ring, so it hangs off it by half its size.
+  // Keep the whole seat inside the table box or the bottom row lands on
+  // the log below. Pull the rail in with the ring so seats never end up
+  // sitting on the felt instead of at the edge of it.
+  geom.ringRy = Math.min(geom.ringRy, Math.max(unit, h / 2 - seatH / 2 - 2));
+  geom.ringRx = Math.min(geom.ringRx, Math.max(unit, w / 2 - seatW / 2 - 2));
+  geom.railRy = Math.min(geom.railRy, Math.max(unit, geom.ringRy - seatH * SEAT_OUT));
+  geom.railRx = Math.min(geom.railRx, Math.max(unit, geom.ringRx - seatW * SEAT_OUT));
+
+  // That clamp is per-axis, so it can undo the shape rule above — a
+  // five-handed phone table came out a long egg despite asking for
+  // something round. Re-apply the shape now that both radii are known,
+  // and rebuild the ring from it. Both steps only ever shrink, so the
+  // table stays inside the box it was just fitted to.
+  geom.railRy = Math.max(unit, Math.min(geom.railRy, geom.railRx / MIN_ASPECT));
+  geom.railRx = Math.max(unit, Math.min(geom.railRx, geom.railRy * MAX_ASPECT));
+  geom.ringRx = geom.railRx + seatW * SEAT_OUT;
+  geom.ringRy = geom.railRy + seatH * SEAT_OUT;
+  return geom;
+}
+
+// The board fits the felt, and the felt is what the rail encloses. The
+// cap used to be barely above the card unit, which left five small cards
+// marooned in a large green field; the board is the thing everyone is
+// looking at, so it takes the room the felt actually has.
+function boardCardFor(geom, unit) {
+  const gap = 0.38 * 16;
+  return clamp((geom.railRx * 0.86 * 2 - gap * 4) / 5, 12, unit * 1.4);
+}
+
+// Seat positions for a solved geometry, keeping the ring off the board.
+function ringPositions(seatCount, w, h, geom, unit) {
+  const gap = 0.38 * 16;
+  const boardCard = boardCardFor(geom, unit);
+  const contentHalfX = (boardCard * 5 + gap * 4) / 2;
+  const contentHalfY = boardCard * 0.7 + unit * 1.4;
+  const bandY = contentHalfY + geom.seatH / 2;
+  const blocked = (sx, sy) => Math.abs(sy) < bandY && Math.abs(sx) - geom.seatW / 2 < contentHalfX;
+
+  return seatPositions(
+    seatCount,
+    { w, h },
+    (geom.ringRx / w) * 100,
+    (geom.ringRy / h) * 100,
+    blocked,
+  );
+}
+
+// Enough perimeter is necessary but not sufficient: seats are spaced by
+// arc length, and around a tight corner the straight line between two of
+// them is much shorter than the arc. So check the boxes themselves.
+function seatsCollide(pos, geom, w, h) {
+  for (let i = 0; i < pos.length; i++) {
+    for (let j = i + 1; j < pos.length; j++) {
+      const dx = Math.abs(pos[i].x - pos[j].x) * w / 100;
+      const dy = Math.abs(pos[i].y - pos[j].y) * h / 100;
+      if (dx < geom.seatW + 2 && dy < geom.seatH + 2) return true;
+    }
+  }
+  return false;
+}
+
+// Shrink the card unit until the seats genuinely fit the ring the table
+// leaves them. A table-shaped felt can leave a perimeter too short to
+// seat everyone — most obviously on a phone in landscape, where the box
+// is very flat — and the alternative to smaller seats is seats stacked
+// on each other.
+function fitUnit(seatCount, w, h, seatWRatio, seatHRatio, startUnit) {
+  let unit = startUnit;
+  let geom = tableGeometry(unit, w, h, seatWRatio, seatHRatio, seatCount);
+  let pos = ringPositions(seatCount, w, h, geom, unit);
+  for (let iter = 0; iter < 12; iter++) {
+    if (unit <= 11.01) break;
+    const needed = seatCount * geom.seatW * 1.06;
+    let next;
+    if (pos.usable < needed) next = unit * Math.max(0.82, pos.usable / needed);
+    else if (seatsCollide(pos, geom, w, h)) next = unit * 0.94;
+    else break;
+    unit = clamp(next, 11, 46);
+    geom = tableGeometry(unit, w, h, seatWRatio, seatHRatio, seatCount);
+    pos = ringPositions(seatCount, w, h, geom, unit);
+  }
+  return { unit, geom, pos };
+}
+
+function applyMetrics(els, seatCount) {
   const table = els.table;
   const w = table.clientWidth;
   const h = table.clientHeight;
   if (!w || !h) return;
 
-  // Two constraints. Across: five board cards plus a seat either side.
-  // Down: the centre cluster (board + pot, about 3.2 units) with a row
-  // of seats above and below (about 3 units each) — call it 10 units of
-  // height.
-  //
-  // Nine seats on a tall narrow table is the tightest case there is:
-  // the ring has to be narrow to fit the width, which leaves the side
-  // seats close together. They need a smaller unit than any other
-  // layout to clear each other.
-  const aspect = w / Math.max(1, h);
-  const tightRing = seatCount > 6 && aspect < 0.85;
-  const byWidth = w / (tightRing ? 18 : (seatCount > 6 ? 15 : 13));
+  // Across: five board cards plus a seat either side. Down: the centre
+  // cluster with a row of seats above and below.
+  const byWidth = w / (seatCount > 6 ? 15 : 13);
   const byHeight = h / 10.2;
   let unit = clamp(Math.min(byWidth, byHeight), 12, 46);
-  if (depth > 0) {
-    // A retry keeps the shrunken unit from the previous pass.
-    const current = parseFloat(table.style.getPropertyValue('--card'));
-    if (current > 0) unit = current;
-  } else {
-    table.style.setProperty('--card', unit + 'px');
-  }
+  // Compact drops the style label and the hand name to buy room. A wide
+  // box alone isn't enough to justify that: on a desktop the result
+  // banner squeezes the table past 2.3:1, and every playing style on the
+  // table blinked out at the exact moment the hand was being read.
+  table.dataset.compact = (h < 320 || (w / h > 2.3 && h < 430)) ? '1' : '0';
 
-  // Keyed off the real table box rather than a media query, so a short
-  // desktop window gets the same treatment as a phone in landscape.
-  table.dataset.compact = (h < 300 || w / h > 2.4) ? '1' : '0';
-
-  // A seat is a box with real dimensions, and it hangs off the ring by
-  // half its size. Cap the radii using the seat actually measured, so
-  // seats can never spill outside the table — on a short landscape
-  // table the bottom seat was overhanging into the log below it.
-  const first = els.seats.get(els.seatOrder[0]);
-  const seatW = (first && first.root.offsetWidth) || unit * 3.5;
-  const seatH = (first && first.root.offsetHeight) || unit * 3;
-  const caps = {
-    maxRx: clamp(((w / 2 - seatW / 2 - 2) / w) * 100, 18, 46),
-    maxRy: clamp(((h / 2 - seatH / 2 - 2) / h) * 100, 14, 46),
+  // Seat dimensions scale with the unit, so express the measured seat as
+  // a ratio and the geometry can be solved for any candidate unit. Take
+  // the *largest* seat, not the first: a player called Sam sits in a
+  // narrower box than one called Station, and the ring has to clear the
+  // widest of them.
+  const measured = parseFloat(getComputedStyle(table).getPropertyValue('--card')) || unit;
+  const seatBox = () => {
+    let bw = 0;
+    let bh = 0;
+    for (const id of els.seatOrder) {
+      const s = els.seats.get(id);
+      if (!s) continue;
+      bw = Math.max(bw, s.root.offsetWidth);
+      bh = Math.max(bh, s.root.offsetHeight);
+    }
+    return [bw, bh];
   };
+  const [box0w, box0h] = seatBox();
+  const seatWRatio = (box0w || measured * 3.5) / measured;
+  const seatHRatio = (box0h || measured * 3) / measured;
 
-  // Measure the felt's real content rather than estimating it. The
-  // estimate covered the board but not the pot sitting below it, so a
-  // seat kept landing on the pot.
-  const tableRect = table.getBoundingClientRect();
-  const cx = tableRect.left + tableRect.width / 2;
-  const cy = tableRect.top + tableRect.height / 2;
-  let contentHalfY = unit * 0.8;
-  let contentHalfX = unit * 3;
-  for (const node of [els.board[0] && els.board[0].parentNode, els.pot]) {
-    if (!node) continue;
-    const r = node.getBoundingClientRect();
-    if (!r.width) continue;
-    contentHalfY = Math.max(contentHalfY, Math.abs(r.top - cy), Math.abs(r.bottom - cy));
-    contentHalfX = Math.max(contentHalfX, Math.abs(r.left - cx), Math.abs(r.right - cx));
+  let fit = fitUnit(seatCount, w, h, seatWRatio, seatHRatio, unit);
+  table.style.setProperty('--card', fit.unit + 'px');
+
+  // A seat's size doesn't scale perfectly with the unit — its padding and
+  // minimum font sizes don't shrink with it — so the ratios measured at
+  // the old unit are only an estimate. Re-measure at the chosen unit and,
+  // if the seat came out a different shape than assumed, solve again with
+  // the true ratios rather than clamping the answer afterwards. Clamping
+  // after the fact shortens the ring the fit had already committed to,
+  // which is how seats ended up back on top of each other.
+  const [box1w, box1h] = seatBox();
+  if (box1w && box1h) {
+    const trueW = box1w / fit.unit;
+    const trueH = box1h / fit.unit;
+    if (Math.abs(trueW - seatWRatio) > 0.04 || Math.abs(trueH - seatHRatio) > 0.04) {
+      fit = fitUnit(seatCount, w, h, trueW, trueH, unit);
+      table.style.setProperty('--card', fit.unit + 'px');
+    }
   }
-  const bandY = contentHalfY + seatH / 2;
-  const blocked = (sx, sy) => Math.abs(sy) < bandY && Math.abs(sx) - seatW / 2 < contentHalfX;
+  const geom = fit.geom;
+  const pos = fit.pos;
 
-  const fit = seatPositions(seatCount, { w, h }, caps, blocked, true);
-  const pos = fit.points;
+  els.rail.style.width = geom.railRx * 2 + 'px';
+  els.rail.style.height = geom.railRy * 2 + 'px';
+  els.rail.style.left = (w / 2 - geom.railRx) + 'px';
+  els.rail.style.top = (h / 2 - geom.railRy) + 'px';
+  table.style.setProperty('--board-card', boardCardFor(geom, fit.unit) + 'px');
+
   let i = 0;
-  for (const seat of els.seatOrder) {
-    const s = els.seats.get(seat);
+  for (const id of els.seatOrder) {
+    const s = els.seats.get(id);
     if (!s) continue;
     s.root.style.left = pos[i].x + '%';
     s.root.style.top = pos[i].y + '%';
     i++;
   }
-
-  // Whatever gap the seats do leave still caps the board, for the corner
-  // case where the ring had to fall back to the full perimeter.
-  let innermost = Infinity;
-  for (const pt of pos) {
-    const dx = (Math.abs(pt.x - 50) / 100) * w;
-    const dy = (Math.abs(pt.y - 50) / 100) * h;
-    if (dy < bandY) innermost = Math.min(innermost, dx - seatW / 2);
-  }
-  const cardW = unit * 1.15;
-  const gap = 0.38 * 16;
-  let boardCard = cardW;
-  if (Number.isFinite(innermost)) {
-    boardCard = Math.min(cardW, (Math.max(60, innermost * 2 - 10) - gap * 4) / 5);
-  }
-  table.style.setProperty('--board-card', Math.max(12, boardCard) + 'px');
-
 }
-
 
 /* ─── Mount ────────────────────────────────────────────────────── */
 
@@ -408,6 +521,7 @@ function mount(stage, p) {
   // felt: floating it over the table hid the board at exactly the
   // moment you want to read the winning hand. Sitting here it is still
   // the loudest thing on screen, and it covers nothing.
+  els.wrap = root;
   els.result = el('div', 'pk-result', root);
   els.resultTitle = el('div', 'pk-result-title', els.result);
   els.resultSub = el('div', 'pk-result-sub', els.result);
@@ -418,12 +532,10 @@ function mount(stage, p) {
   els.log = el('div', 'pk-log', root);
   els.actions = el('div', 'pk-actionbar', root);
 
-  // A full table in portrait works, but it is measurably tighter than
-  // the same table turned sideways — a poker table is a wide object.
-  // Mention it once, briefly, and never nag.
-  els.rotate = el('div', 'pk-rotate', root);
-  els.rotate.textContent = 'Turn your phone sideways for a bigger table';
-  maybeSuggestRotate(els, p.seats.length);
+  // There used to be a banner here suggesting you turn the phone
+  // sideways. It was true when the table had to be a wide oval; now that
+  // it stands up in portrait, portrait is the roomier of the two, and the
+  // banner was both wrong and in the way.
 
   view.root = root;
   view.els = els;
@@ -443,20 +555,14 @@ function mount(stage, p) {
   });
   view.observer.observe(table);
 
+  // Also watch your own seat. The ring's vertical radius is derived from
+  // the tallest seat, and at mount that seat has no cards yet — so the
+  // radius was computed from a short seat, and once the hand was dealt
+  // the seat grew past the bottom of the table and onto the log.
+  const hero = els.seats.get(els.seatOrder[0]);
+  if (hero) view.observer.observe(hero.root);
+
   return els;
-}
-
-const ROTATE_HINT_KEY = 'level0.poker.rotateHintSeen';
-
-function maybeSuggestRotate(els, seatCount) {
-  const narrowPortrait = window.innerWidth < 560 && window.innerHeight > window.innerWidth;
-  let seen = false;
-  try { seen = sessionStorage.getItem(ROTATE_HINT_KEY) === '1'; } catch { /* private mode */ }
-  if (seatCount <= 6 || !narrowPortrait || seen) return;
-
-  try { sessionStorage.setItem(ROTATE_HINT_KEY, '1'); } catch { /* ignore */ }
-  els.rotate.classList.add('is-showing');
-  setTimeout(() => els.rotate.classList.remove('is-showing'), 6000);
 }
 
 function seatOrder(p) {
@@ -489,11 +595,19 @@ function buildSeat(parent, seat) {
   // seat box: anchored to the seat it sat in the same row as the hole
   // cards and clipped them once the cards grew.
   const mark = el('span', 'pk-seat-mark', plate);
-  const action = el('span', 'pk-seat-action', root);
-  const bet = el('span', 'pk-seat-bet', root);
+
+  // What the player just did, what they have out in front of them, and
+  // what they showed down all come and go during a hand. In the seat's
+  // own flow they changed its height as they appeared, and the ring was
+  // solved for a seat that no longer existed — nine seats grew at once
+  // at a showdown and climbed onto each other. They hang below the seat
+  // instead, so the box the ring is spaced by never changes.
+  const below = el('div', 'pk-seat-below', root);
+  const action = el('span', 'pk-seat-action', below);
+  const bet = el('span', 'pk-seat-bet', below);
   el('i', 'pk-chip', bet);
   const betAmount = el('span', 'pk-seat-bet-amt', bet);
-  const hand = el('span', 'pk-seat-hand', root);
+  const hand = el('span', 'pk-seat-hand', below);
   const delta = el('span', 'pk-seat-delta', root);
 
   return { root, cards: cardEls, name, bot, style, stack, timer, timerFill, mark, action, bet, betAmount, hand, delta };
@@ -601,6 +715,9 @@ function updateSeats(els, p) {
   // Hands turn over one after another at a showdown rather than all at
   // once, so you can read each one as it lands.
   let revealing = 0;
+  // Playing styles are only sent on solo tables, so their presence is
+  // also how the seat knows there are no humans to distinguish.
+  const solo = p.seats.some((s) => s.style);
 
   for (const seat of p.seats) {
     const s = els.seats.get(seat.id);
@@ -614,7 +731,10 @@ function updateSeats(els, p) {
     setClass(s.root, 'is-live', seat.inHand && !seat.folded && !seat.eliminated);
 
     setText(s.name, seat.name);
-    setHidden(s.bot, !seat.isAI);
+    // On a solo table every opponent is a bot, so the badge marks
+    // nothing and only steals room from the name. It earns its place
+    // when there are humans at the table to tell the bots apart from.
+    setHidden(s.bot, !seat.isAI || solo);
 
     // Playing style is only sent for solo tables; with friends at the
     // table the bots stay anonymous.
@@ -704,6 +824,13 @@ function updateResult(els, p) {
   const showing = !!(r && r.pots && r.pots.length) && (p.stage === 'showdown' || p.stage === 'handover');
   const wasShowing = view.resultShowing;
   view.resultShowing = showing;
+
+  // The banner takes its height from the controls, not from the table.
+  // Taking it from the table meant every showdown reshaped the seat ring,
+  // and on a phone in landscape there was no height left to give: seats
+  // slid off the top of the screen and the banner itself came out clipped.
+  // There is nothing to act on during a showdown, so the controls yield.
+  setClass(els.wrap, 'is-result', showing);
 
   if (!showing) {
     setClass(els.result, 'is-showing', false);
