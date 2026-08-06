@@ -1476,6 +1476,22 @@ body {
 /* .game-stage centers its children, which would shrink-wrap the table
    to its content width — stretch back out to the full column. */
 .pk-wrap {
+  /* Poker's own palette. Everything below is scoped here, so the felt
+     and rail can't leak into the rest of the site. --accent is
+     deliberately re-pointed: it warms poker's buttons and highlights to
+     brass without touching any other game. */
+  --felt-hi: #2a7d57;
+  --felt: #1a6042;
+  --felt-lo: #0d3d29;
+  --rail-hi: #7a5535;
+  --rail: #4e3520;
+  --rail-lo: #2a1c10;
+  --accent: #e3b95e;
+  --accent-soft: rgba(227, 185, 94, 0.14);
+  --accent-glow: rgba(227, 185, 94, 0.4);
+  --felt-gold: #f0d79a;
+  --card-face: #fdfaf2;
+
   align-self: stretch;
   width: 100%;
   height: 100%;
@@ -1511,17 +1527,33 @@ body {
   margin: 0 auto;
 }
 
+/* A walnut rail with a brass hairline, wrapping an emerald felt. The
+   palette is scoped to .pk-wrap so poker can look like poker without
+   disturbing the rest of Level 0. */
+.pk-rail {
+  position: absolute;
+  inset: 16% 14%;
+  border-radius: 50%;
+  background:
+    linear-gradient(160deg, var(--rail-hi) 0%, var(--rail) 42%, var(--rail-lo) 100%);
+  box-shadow:
+    inset 0 2px 3px rgba(255, 255, 255, 0.16),
+    inset 0 -3px 6px rgba(0, 0, 0, 0.5),
+    0 18px 50px rgba(0, 0, 0, 0.6),
+    0 2px 0 rgba(0, 0, 0, 0.4);
+  padding: 2.6%;
+}
+
 .pk-felt {
   position: absolute;
-  inset: 15% 13%;
-  border-radius: 50% / 50%;
-  background: radial-gradient(ellipse at 50% 38%, #224234 0%, #162c24 55%, #0e1c16 100%);
-  border: 1px solid rgba(212, 168, 67, 0.2);
+  inset: 2.6%;
+  border-radius: 50%;
+  background:
+    radial-gradient(ellipse at 50% 34%, var(--felt-hi) 0%, var(--felt) 48%, var(--felt-lo) 100%);
   box-shadow:
-    inset 0 0 60px rgba(0, 0, 0, 0.5),
-    inset 0 0 0 6px rgba(0, 0, 0, 0.28),
-    inset 0 0 0 7px rgba(212, 168, 67, 0.13),
-    0 10px 40px rgba(0, 0, 0, 0.5);
+    inset 0 0 0 2px rgba(212, 175, 110, 0.35),
+    inset 0 6px 26px rgba(0, 0, 0, 0.45),
+    inset 0 0 70px rgba(0, 0, 0, 0.28);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1531,6 +1563,12 @@ body {
 }
 
 .pk-board { display: flex; gap: 0.38rem; }
+/* Sized to the gap the seats actually leave, never larger than a
+   normal card. */
+.pk-board .pk-card {
+  width: var(--board-card, calc(var(--card, 28px) * 1.15));
+  font-size: calc(var(--board-card, 32px) * 0.3);
+}
 
 /* A chip. Colour is tiered against the big blind, so bet size reads as
    colour before you've read the number — and "big" keeps meaning the
@@ -1630,11 +1668,11 @@ body {
 
 .pk-card {
   position: relative;
-  width: clamp(2.1rem, 5vw, 3rem);
+  width: calc(var(--card, 28px) * 1.15);
   aspect-ratio: 5 / 7;
   border-radius: 5px;
-  background: linear-gradient(160deg, #fbf7ee 0%, #ece4d4 100%);
-  color: #14100a;
+  background: linear-gradient(158deg, var(--card-face) 0%, #ece2cd 100%);
+  color: #16110b;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1644,7 +1682,7 @@ body {
   user-select: none;
   flex: none;
   backface-visibility: hidden;
-  font-size: clamp(0.6rem, 1.7vw, 0.9rem);
+  font-size: calc(var(--card, 28px) * 0.34);
 }
 /* Corner index and a large centre pip, the way a real card reads. At
    seat size the corner is what you actually parse; the pip carries the
@@ -1672,9 +1710,11 @@ body {
 
 .pk-card.is-back {
   background:
-    repeating-linear-gradient(45deg, rgba(255,255,255,0.05) 0 3px, transparent 3px 6px),
-    linear-gradient(160deg, #43356a 0%, #2b2140 100%);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.06) 0 3px, transparent 3px 7px),
+    linear-gradient(158deg, #8c2b34 0%, #5e1a22 100%);
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.5),
+    inset 0 0 0 1.5px rgba(240, 215, 154, 0.35);
 }
 .pk-card.is-slot {
   background: rgba(255, 255, 255, 0.035);
@@ -1686,18 +1726,27 @@ body {
   box-shadow: 0 0 14px var(--accent-glow);
   z-index: 2;
 }
+/* Face-down cards carry no information, so they stay small and quiet —
+   eighteen of them at full size turned the table into clutter. A card
+   that turns face-up grows into something you can actually read, which
+   is the only moment an opponent's cards matter. */
 .pk-card.is-mini {
-  width: clamp(1.1rem, 2.8vw, 1.5rem);
+  width: calc(var(--card, 28px) * 1.0);
+  border-radius: 4px;
+  font-size: calc(var(--card, 28px) * 0.3);
+  transition: width var(--t-med);
+}
+.pk-card.is-mini.is-back {
+  width: calc(var(--card, 28px) * 0.6);
   border-radius: 3px;
-  font-size: clamp(0.36rem, 0.95vw, 0.5rem);
 }
 
 /* Your own hand is the single most important thing on screen, so it is
    the largest — bigger than the community cards, not smaller. */
 .pk-seat.is-me .pk-card.is-mini {
-  width: clamp(2.5rem, 6.2vw, 3.6rem);
-  border-radius: 5px;
-  font-size: clamp(0.72rem, 2vw, 1.05rem);
+  width: calc(var(--card, 28px) * 1.35);
+  border-radius: 6px;
+  font-size: calc(var(--card, 28px) * 0.4);
 }
 
 /* ── Seats ── */
@@ -1705,7 +1754,7 @@ body {
 .pk-seat {
   position: absolute;
   transform: translate(-50%, -50%);
-  width: clamp(4.8rem, 13vw, 6.8rem);
+  width: calc(var(--card, 28px) * var(--seat-w, 3.5));
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1857,10 +1906,14 @@ body {
 }
 
 .pk-seat-hand {
-  font-size: 0.62rem;
-  color: var(--accent);
+  max-width: 100%;
+  font-size: calc(var(--card, 28px) * 0.26);
+  color: var(--felt-gold);
   text-align: center;
-  line-height: 1.25;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Floating +/- when a stack changes. */
@@ -1957,6 +2010,25 @@ body {
   .pk-seat-delta.is-flying,
   .pk-seat.is-acting .pk-seat-plate { animation: none; }
   .pk-chip-ghost { transition: none; }
+}
+
+/* Shown once per session on a phone in portrait at a full table. */
+.pk-rotate {
+  flex: none;
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  text-align: center;
+  font-size: 0.74rem;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--radius);
+  transition: max-height var(--t-med), opacity var(--t-med), padding var(--t-med);
+}
+.pk-rotate.is-showing {
+  max-height: 2.4rem;
+  opacity: 1;
+  padding: 0.35rem 0.6rem;
 }
 
 /* ── Log ── */
@@ -2151,6 +2223,40 @@ body {
 .pk-standing.is-first .pk-standing-name { color: var(--accent); }
 .pk-standing.is-me .pk-standing-name { color: var(--text-primary); }
 
+/* A table too short to give every seat its full height. The hand name
+   goes first — the result banner already spells out the winning hand,
+   so the per-seat copy is the most redundant thing on a cramped seat. */
+/* On a short table the felt has to give up room, or there is nowhere
+   for the ring to sit except on top of the board. */
+.pk-table[data-compact="1"] .pk-rail { inset: 19% 5%; }
+.pk-table[data-compact="1"] .pk-seat { gap: 0.1rem; }
+.pk-table[data-compact="1"] .pk-seat-hand { display: none; }
+.pk-table[data-compact="1"] .pk-seat-plate { padding: 0.18rem 0.3rem; }
+.pk-table[data-compact="1"] .pk-seat-style { display: none; }
+.pk-table[data-compact="1"] .pk-seat-timer { height: 2px; }
+
+/* ── Short viewports (a phone in landscape) ──
+   Landscape is not a rotated portrait. Vertical space becomes the
+   scarce resource, and the controls were taking 35% of a 390px-tall
+   screen — leaving the table too short for nine seats to sit around
+   without colliding. Everything that isn't the table gets tighter. */
+
+@media (max-height: 520px) and (orientation: landscape) {
+  .pk-wrap { gap: 0.35rem; }
+  .pk-topbar { min-height: 1.5rem; font-size: 0.68rem; }
+  .pk-log { height: 1.25rem; font-size: 0.72rem; }
+  .pk-actionbar { min-height: 5rem; }
+  .pk-actions { padding: 0.45rem 0.6rem; gap: 0.35rem; max-width: 760px; }
+  .pk-raise { gap: 0.3rem 0.6rem; }
+  .pk-raise-amount { font-size: 0.85rem; min-width: 4rem; }
+  .pk-preset { padding: 0.25rem 0.2rem; font-size: 0.66rem; }
+  .pk-btn { padding: 0.5rem 0.3rem; font-size: 0.8rem; }
+  .pk-result { padding: 0.35rem 0.8rem; }
+  .pk-result.is-showing { padding-top: 0.35rem; padding-bottom: 0.35rem; }
+  .pk-result-title { font-size: 0.85rem; }
+  .pk-result-sub { font-size: 0.7rem; }
+}
+
 /* ── Small screens ── */
 
 @media (max-width: 560px) {
@@ -2158,14 +2264,13 @@ body {
      log and the action buttons all have to fit above the fold, because
      a player who has to scroll to fold has already lost the hand. */
   .pk-wrap { gap: 0.45rem; }
-  .pk-felt { inset: 16% 9%; }
-  .pk-seat { width: clamp(4rem, 22vw, 5.2rem); }
-  /* Nine seats around a phone-width ring need to be narrower still,
-     or the ones at the sides overlap each other. */
-  .pk-table[data-seats="9"] .pk-seat { width: clamp(3.3rem, 17.5vw, 4.4rem); }
-  .pk-table[data-seats="9"] .pk-seat-name { font-size: 0.64rem; }
-  .pk-table[data-seats="9"] .pk-seat-chips { font-size: 0.68rem; }
-  .pk-table[data-seats="9"] .pk-seat-style { font-size: 0.5rem; letter-spacing: 0.04em; }
+  /* The felt's inset is relative to the rail now, so it stays put; it's
+     the rail that tightens on a phone. (This rule used to size the felt
+     against the table and was shrinking it inside the rail instead,
+     which is what produced the thick brown band.) */
+  .pk-rail { inset: 13% 9%; }
+  /* Seat width follows the card unit, which already scales with the
+     table — the old viewport-based widths fought it. */
   .pk-btn { font-size: 0.8rem; padding: 0.8rem 0.3rem; }
   .pk-topbar { font-size: 0.66rem; }
   .pk-result-title { font-size: 0.92rem; }
