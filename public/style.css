@@ -1562,7 +1562,10 @@ body {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  padding: 0.5rem;
+  /* The bottom of the felt belongs to your own cards, which reach up into
+     it from your seat. Reserving it is what keeps the board and the pot
+     centred in the part of the felt you can actually see. */
+  padding: 0.5rem 0.5rem calc(0.5rem + var(--felt-bottom, 0px));
 }
 
 .pk-board { display: flex; gap: 0.38rem; }
@@ -1626,39 +1629,37 @@ body {
 /* Winning a pot is the payoff of the whole hand; it gets the loudest
    moment on the table rather than a line of small print in the felt. */
 
+/* The banner and the controls are never both wanted — there is nothing
+   to act on while a hand is being paid out — so they share one slot at
+   the bottom of the column instead of stacking. That is what stops the
+   table being reshaped at every showdown: it used to take its height
+   from the column, which moved all nine seats each hand, and every
+   compensation for that was an arithmetic guess about how tall the log
+   and the buttons happened to be. Overlaying costs nothing and cannot
+   drift. */
 .pk-result {
-  /* A flex item by default shrinks under pressure, and in landscape the
-     banner was squeezed to a 13px sliver with the winning hand inside
-     it. It is announcing the result — it does not shrink. */
-  flex: none;
-  width: 100%;
-  max-width: 640px;
-  margin: 0 auto;
+  position: absolute;
+  z-index: 6;
+  left: 50%;
+  bottom: 0.35rem;
+  transform: translateX(-50%);
+  width: min(100%, 640px);
   text-align: center;
   padding: 0.6rem 1rem;
   border-radius: var(--radius-lg);
   background: var(--accent-soft);
   border: 1px solid var(--accent);
   box-shadow: 0 0 18px var(--accent-glow);
-  opacity: 0;
-  transform: translateY(-6px);
-  transition: opacity var(--t-med), transform var(--t-med);
-  /* Reserve nothing when idle, so the table doesn't jump as it appears
-     and disappears between hands. */
-  max-height: 0;
-  padding-top: 0;
-  padding-bottom: 0;
-  border-width: 0;
-  overflow: hidden;
+  backdrop-filter: blur(3px);
+  animation: pk-result-in var(--t-med) ease-out;
 }
-.pk-result.is-showing {
-  opacity: 1;
-  transform: none;
-  max-height: 5rem;
-  padding-top: 0.6rem;
-  padding-bottom: 0.6rem;
-  border-width: 1px;
+.pk-result:not(.is-showing) { display: none; }
+
+@keyframes pk-result-in {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
 }
+
 .pk-result-title {
   font-size: 1.05rem;
   font-weight: 600;
@@ -1748,64 +1749,133 @@ body {
   border-radius: 3px;
 }
 
-/* Your own hand is the single most important thing on screen, so it is
-   never smaller than the community cards. It is capped by the seat it
-   sits in — two cards and a gap have to fit the plate's width. */
-.pk-seat.is-me .pk-card.is-mini {
-  width: min(var(--board-card, 32px), calc(var(--card, 28px) * 1.9));
+/* Your own hand is the single most important thing on screen, and it is
+   the same size as the community cards — the layout reserves room at the
+   bottom of the felt for exactly this, so the size has to agree with what
+   the layout believes. Qualified with .pk-table so it outranks the
+   compact card rule further down, which used to win by source order and
+   silently draw a bigger card than the felt had made room for. */
+.pk-table .pk-seat.is-me .pk-card.is-mini {
+  width: min(var(--board-card, 32px), calc(var(--card, 28px) * var(--hero-cap, 1.9)));
   border-radius: 6px;
   font-size: calc(var(--card, 28px) * 0.4);
 }
 
 /* ── Seats ── */
 
-/* A nameplate has a useful width and then stops having one: past about
-   150px it is an empty box with a name in the middle, and the seat ring
-   pays for the emptiness by pushing every seat off the rail. */
+/* Width comes from the layout, which is the single source of truth for
+   how much room a seat gets — the ring is spaced by exactly this number.
+   A nameplate has a useful width and then stops having one: past about
+   150px it is an empty box with a name in the middle, and the ring pays
+   for the emptiness by pushing every seat off the rail, so the layout
+   caps it there. */
 .pk-seat {
   position: absolute;
   transform: translate(-50%, -50%);
-  width: min(calc(var(--card, 28px) * var(--seat-w, 4.1)), 150px);
+  width: var(--seat-w, 84px);
+  /* Fixed, so a seat never moves. Its contents come and go all hand —
+     an action label, chips in front, cards turning over — and while the
+     box hugged them, every one of those changed the seat's height, and a
+     seat centred on its position moves when it grows. Nine of them doing
+     that at a showdown was most of what read as the table being unsteady. */
+  height: var(--seat-h, 60px);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.2rem;
+  justify-content: flex-start;
+  gap: 0.16rem;
   transition: opacity var(--t-med), filter var(--t-med);
 }
 
-/* A card that turns over is more than twice the height of its back, and
-   letting the row grow at a showdown moved every seat on the ring at
-   once. Reserving the taller size instead cost height the seat doesn't
-   have on a phone in landscape. So the row keeps a face-down card's
-   height and a revealed card overflows *upward* out of it — the seat box
-   the ring is spaced by never changes, and the growth goes into the
-   empty felt above the seat rather than into its neighbours. */
+/* Cards lie above the plate and slightly behind it, the way they sit on
+   the table in front of a player — not stacked above it in the seat's
+   own flow. Out of flow they can grow when they turn over at a showdown
+   without changing the box the ring is spaced by, and the plate can stay
+   a readable fixed size while the cards scale with the table. The ring
+   leaves room overhead for them. */
 .pk-seat-cards {
+  position: absolute;
   display: flex;
   align-items: flex-end;
   gap: 0.16rem;
-  height: calc(var(--card, 28px) * 0.6 * 1.4);
+  pointer-events: none;
+  /* Above the plate by default — and clear of it, not tucked behind,
+     because overlapping hides the player's name at exactly the moment
+     you want to know whose hand you're looking at. This is the base
+     rather than a [data-cards="up"] rule so a seat that has not been
+     laid out yet still puts its cards somewhere sensible instead of
+     stacking them on top of the nameplate. */
+  bottom: 100%;
+  margin-bottom: 0.12rem;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
-/* Your own hand is face-up all hand long, so its seat reserves it. */
-.pk-seat.is-me .pk-seat-cards {
-  height: auto;
-  min-height: calc(var(--card, 28px) * 0.6 * 1.4);
+/* A seat on the side has its neighbours directly above and below it,
+   close enough that a card turned face up covered the next player's
+   name — and on a phone in landscape no amount of respacing fixes that,
+   because there simply isn't the height. So those cards lie inward, onto
+   the felt, which is empty and is where cards are at a real table. */
+.pk-seat[data-cards="right"] .pk-seat-cards,
+.pk-seat[data-cards="left"] .pk-seat-cards {
+  /* Bottom-aligned with the plate rather than centred on it: a revealed
+     card is taller than the pod, and centring it put the overhang across
+     the chips and the action label sitting underneath. Rising from the
+     plate's foot keeps that strip clear. */
+  top: auto;
+  bottom: 0;
+  margin-bottom: 0;
+  transform: none;
+}
+.pk-seat[data-cards="right"] .pk-seat-cards { left: 100%; margin-left: 0.25rem; }
+.pk-seat[data-cards="left"] .pk-seat-cards { left: auto; right: 100%; margin-right: 0.25rem; }
+
+/* What a player has in front of them and what they just did hang below
+   the seat rather than sitting inside it. That is where chips are at a
+   real table, and it keeps them from resizing the seat as they come and
+   go — a seat centred on its position moves when it grows, and nine of
+   them doing that at once reads as an unsteady table. The ring leaves
+   room for this strip; it is not free.
+
+   Bounded to the seat's own width, and clipped: a hand name is easily
+   wider than a nameplate, and left to run it printed itself across the
+   next seat's cards and off the side of the screen. The result banner
+   carries the winning hand in full. */
+.pk-seat-below {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  pointer-events: none;
+}
+.pk-seat-below > * {
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* A named group for the labels that come and go under a seat, laid out
-   as if they were still direct children. Reserving a fixed strip for
-   them was tried and cost more height than the churn was worth: on a
-   phone in landscape it drove the whole table down to its minimum. */
-.pk-seat-below { display: contents; }
-
+/* The plate *is* the seat: it fills the declared pod, so the pod's size
+   is the only thing that decides how much room a player's name gets. */
 .pk-seat-plate {
   position: relative;
   width: 100%;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 0.3rem 0.35rem;
+  padding: 0.16rem 0.3rem;
   text-align: center;
   /* No overflow clip here — the blind marker hangs off the right edge,
      and the name truncates itself. */
@@ -1819,10 +1889,13 @@ body {
   min-width: 0;
 }
 
-/* Seat text scales with the table rather than sitting at a fixed size,
-   or a big screen gets big plates with small print on them. */
+/* Seat text scales with the *pod*, not with the cards. The pod is sized
+   for legibility, so tying the type to it keeps the plate proportionate
+   at every table size — against the card unit, a big table got big
+   plates with small print on them. */
 .pk-seat-name {
-  font-size: clamp(0.68rem, calc(var(--card, 28px) * 0.36), 1rem);
+  font-size: calc(var(--seat-h, 62px) * 0.185);
+  line-height: 1.1;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -1831,7 +1904,7 @@ body {
 
 .pk-seat-bot {
   flex: none;
-  font-size: 0.5rem;
+  font-size: calc(var(--seat-h, 62px) * 0.14);
   letter-spacing: 0.06em;
   color: var(--text-dim);
   border: 1px solid var(--border-strong);
@@ -1842,16 +1915,17 @@ body {
 /* Playing style, solo tables only — the label is how you learn to read
    an opponent, so it is legible rather than decorative. */
 .pk-seat-style {
-  font-size: clamp(0.56rem, calc(var(--card, 28px) * 0.28), 0.8rem);
+  font-size: calc(var(--seat-h, 62px) * 0.145);
+  line-height: 1.05;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--accent);
   opacity: 0.85;
-  margin-top: 0.05rem;
 }
 
 .pk-seat-chips {
-  font-size: clamp(0.74rem, calc(var(--card, 28px) * 0.4), 1.1rem);
+  font-size: calc(var(--seat-h, 62px) * 0.205);
+  line-height: 1.1;
   font-weight: 600;
   color: var(--accent);
   letter-spacing: 0.02em;
@@ -1877,7 +1951,10 @@ body {
 .pk-seat.is-me .pk-seat-name { color: var(--accent); }
 
 .pk-seat-timer {
-  width: 100%;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
   height: 3px;
   background: rgba(255, 255, 255, 0.08);
   border-radius: 2px;
@@ -1921,6 +1998,7 @@ body {
    readable and colour-coded by how aggressive it was. */
 .pk-seat-action {
   font-size: 0.66rem;
+  white-space: nowrap;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--text-secondary);
@@ -2098,14 +2176,6 @@ body {
   transition: min-height var(--t-med);
 }
 
-/* A showdown has nothing to act on, so the controls give their reserved
-   height to the result banner instead of the table paying for it. The
-   two are matched, which is why nothing on the table moves. */
-.pk-wrap.is-result .pk-actionbar { min-height: 3.1rem; }
-
-/* The banner already says who won and with what, so the log repeating it
-   is two lines the table could be using instead. */
-.pk-wrap.is-result .pk-log { display: none; }
 
 /* On a phone in landscape the column is the scarce thing, not the width,
    and there is no arrangement in which a nine-handed ring and a banner
@@ -2113,50 +2183,6 @@ body {
    row and floats over the felt: the column never changes height, the
    ring never re-lays-out, and the board is hidden only for the couple of
    seconds between the hand ending and the next one starting. */
-@media (max-height: 500px) {
-  /* Width is the thing there is plenty of, so the controls go side by
-     side instead of stacked. That is most of the height the table was
-     missing — stacked, they left the column taller than the window and
-     the bottom row of seats sat on the log. */
-  .pk-actions { flex-direction: row; align-items: center; gap: 0.5rem; padding: 0.5rem; }
-  .pk-actions > .pk-raise { flex: 1 1 55%; margin: 0; }
-  .pk-actions > .pk-buttons { flex: 1 1 45%; }
-  .pk-log { height: 1.35rem; }
-  .pk-table { min-height: 150px; }
-  .pk-actionbar { min-height: 5.2rem; }
-  .pk-wrap.is-result .pk-actionbar { min-height: 5.2rem; }
-  .pk-wrap.is-result .pk-log { display: flex; }
-  .pk-result {
-    position: absolute;
-    z-index: 5;
-    left: 50%;
-    top: 42%;
-    width: min(88%, 420px);
-    max-height: none;
-    transform: translate(-50%, -50%);
-    background: rgba(10, 24, 18, 0.94);
-  }
-  /* Floating, it has no reason to collapse to nothing between hands —
-     and collapsed it still left a full-width strip across the felt that
-     seats collided with. */
-  .pk-result:not(.is-showing) { display: none; }
-  .pk-result.is-showing { transform: translate(-50%, -50%); }
-}
-
-/* Safari's toolbars leave about 330px of a phone in landscape. At that
-   height a nine-handed ring and a running log cannot both exist, so the
-   log goes: each seat already shows what that player just did, and the
-   banner reports the result. Everything else gives up what it can. */
-@media (max-height: 380px) {
-  /* Both selectors: the taller breakpoint puts the log *back* while a
-     result is showing, and that rule is the more specific of the two.
-     Keeping even a one-line log here was tried: it costs the ring more
-     than it gives, and nine seats went back to overlapping. */
-  .pk-log,
-  .pk-wrap.is-result .pk-log { display: none; }
-  .pk-wrap { gap: 0.3rem; }
-  .pk-topbar { min-height: 1.3rem; font-size: 0.68rem; }
-}
 
 .pk-actions {
   width: 100%;
@@ -2343,29 +2369,50 @@ body {
 .pk-table[data-compact="1"] .pk-card.is-mini.is-back { width: calc(var(--card, 28px) * 0.6); }
 
 /* ── Short viewports (a phone in landscape) ──
-   Landscape is not a rotated portrait. Vertical space becomes the
-   scarce resource, and the controls were taking 35% of a 390px-tall
-   screen — leaving the table too short for nine seats to sit around
-   without colliding. Everything that isn't the table gets tighter. */
+   Landscape is not a rotated portrait. Vertical space becomes the scarce
+   resource: the table has to fit two rows of seats, their cards, and a
+   board between them, and every row of chrome comes straight out of it.
+   So the controls collapse to a single line — there is width to spare
+   and none to spare downward — and the log goes, because each seat shows
+   what that player has in front of them and the banner reports results.
+   That is roughly 90px handed back to the felt on a 390px screen. */
 
 @media (max-height: 520px) and (orientation: landscape) {
-  .pk-wrap { gap: 0.35rem; }
-  .pk-topbar { min-height: 1.5rem; font-size: 0.68rem; }
-  .pk-log { height: 1.35rem; font-size: 0.72rem; }
-  /* One line only — two never fit in this height and the second was
-     being sliced through the middle. */
-  .pk-log .pk-log-line:not(.is-latest) { display: none; }
-  .pk-actionbar { min-height: 5rem; }
-  .pk-actions { padding: 0.45rem 0.6rem; gap: 0.35rem; max-width: 760px; }
-  .pk-raise { gap: 0.3rem 0.6rem; }
-  .pk-raise-amount { font-size: 0.85rem; min-width: 4rem; }
-  .pk-preset { padding: 0.25rem 0.2rem; font-size: 0.66rem; }
-  .pk-btn { padding: 0.5rem 0.3rem; font-size: 0.8rem; }
-  .pk-result { padding: 0.35rem 0.8rem; }
-  .pk-result.is-showing { padding-top: 0.35rem; padding-bottom: 0.35rem; }
+  .pk-wrap { gap: 0.3rem; }
+  .pk-topbar { min-height: 1.3rem; font-size: 0.68rem; }
+  .pk-log { display: none; }
+
+  .pk-table { min-height: 150px; }
+  .pk-actionbar { min-height: 3.6rem; }
+
+  .pk-actions {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.55rem;
+    max-width: 860px;
+  }
+  /* The raise controls stop being a two-row grid and lay out in line:
+     amount, slider, presets. */
+  .pk-actions > .pk-raise {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 0;
+  }
+  .pk-raise-amount { font-size: 0.82rem; min-width: 3.6rem; }
+  .pk-slider { flex: 1 1 4rem; min-width: 3rem; }
+  .pk-presets { display: flex; gap: 0.22rem; }
+  .pk-preset { padding: 0.24rem 0.32rem; font-size: 0.64rem; }
+  .pk-actions > .pk-buttons { flex: 0 0 auto; gap: 0.35rem; }
+  .pk-btn { padding: 0.45rem 0.7rem; font-size: 0.78rem; }
+
+  .pk-result { padding: 0.3rem 0.8rem; }
   .pk-result-title { font-size: 0.85rem; }
   .pk-result-sub { font-size: 0.7rem; }
 }
+
 
 /* ── Small screens ── */
 
