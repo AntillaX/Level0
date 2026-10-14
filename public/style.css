@@ -2025,6 +2025,10 @@ body::before {
 }
 .pk-seat[data-cards="right"] .pk-seat-cards { left: 100%; margin-left: 0.25rem; }
 .pk-seat[data-cards="left"] .pk-seat-cards { left: auto; right: 100%; margin-right: 0.25rem; }
+/* The dealer and blind markers hang off the plate's right edge — which is
+   where the cards are on a seat whose cards lie to its right, so there the
+   marker moves to the other side rather than sitting on the first card. */
+.pk-seat[data-cards="right"] .pk-seat-mark { right: auto; left: -0.55rem; }
 
 /* What a player has in front of them and what they just did hang below
    the seat rather than sitting inside it. That is where chips are at a
@@ -2645,11 +2649,13 @@ body::before {
 .pk-table[data-compact="1"] .pk-seat-chips { font-size: 0.72rem; line-height: 1.05; }
 
 /* All of that frees width the cards can have back, and on the smallest
-   table a revealed card needs every pixel it can get to stay readable.
-   A face-down one still carries nothing, though, and letting it grow
-   with the rule above turned eighteen of them into the clutter that
+   table a revealed card needs every pixel it can get to stay readable —
+   up to the height the layout keeps clear above the top seats for it;
+   any larger and a showdown at the top of the table reached into the
+   blinds. A face-down one still carries nothing, though, and letting it
+   grow with the rule above turned eighteen of them into the clutter that
    rule exists to prevent. */
-.pk-table[data-compact="1"] .pk-card.is-mini { width: calc(var(--card, 28px) * 1.7); }
+.pk-table[data-compact="1"] .pk-card.is-mini { width: calc(var(--card, 28px) * 1.45); }
 .pk-table[data-compact="1"] .pk-card.is-mini.is-back { width: calc(var(--card, 28px) * 0.6); }
 
 /* ── Short viewports (a phone in landscape) ──
@@ -2688,18 +2694,30 @@ body::before {
   .pk-raise-amount { font-size: 0.82rem; min-width: 3.6rem; }
   .pk-slider { flex: 1 1 4rem; min-width: 3rem; }
   .pk-presets { display: flex; gap: 0.22rem; }
-  .pk-preset { padding: 0.24rem 0.32rem; font-size: 0.64rem; }
-  .pk-actions > .pk-buttons { flex: 0 0 auto; gap: 0.35rem; }
+  .pk-preset { padding: 0.3rem 0.42rem; font-size: 0.58rem; letter-spacing: 0.06em; white-space: nowrap; }
+  /* Each button as wide as its own label rather than all three as wide as
+     the longest — equal columns gave "Fold" the width of "Raise to $100K"
+     and pushed the presets out of the row on a 667px phone. */
+  .pk-actions > .pk-buttons { flex: 0 0 auto; display: flex; gap: 0.35rem; }
   /* There is width to spare here and no height: verb and amount share
      one line. */
-  .pk-btn { flex-direction: row; gap: 0.35rem; min-height: 0; padding: 0.5rem 0.75rem; }
-  .pk-btn-verb { font-size: 0.62rem; }
+  .pk-btn { flex-direction: row; gap: 0.35rem; min-height: 0; padding: 0.5rem 0.7rem; }
+  .pk-btn-verb { font-size: 0.6rem; letter-spacing: 0.1em; }
   .pk-btn-amt { font-size: 0.8rem; }
   .pk-waiting { padding: 0.35rem 0.9rem; }
 
   .pk-result { padding: 0.3rem 0.8rem; }
   .pk-result-title { font-size: 0.85rem; }
   .pk-result-sub { font-size: 0.7rem; }
+}
+
+/* The narrowest phones on their side still can't fit four presets beside
+   the buttons. "Min" goes first: it is where the slider starts anyway. */
+@media (max-height: 520px) and (orientation: landscape) and (max-width: 640px) {
+  .pk-preset:first-child { display: none; }
+  .pk-actions { gap: 0.4rem; padding: 0.4rem 0.45rem; }
+  .pk-raise-amount { min-width: 2.9rem; font-size: 0.76rem; }
+  .pk-slider { min-width: 1.8rem; }
 }
 
 
