@@ -1572,17 +1572,26 @@ body::before {
      and rail can't leak into the rest of the site. --accent is
      deliberately re-pointed: it warms poker's buttons and highlights to
      brass without touching any other game. */
-  --felt-hi: #2a7d57;
-  --felt: #1a6042;
-  --felt-lo: #0d3d29;
-  --rail-hi: #7a5535;
-  --rail: #4e3520;
-  --rail-lo: #2a1c10;
-  --accent: #e3b95e;
-  --accent-soft: rgba(227, 185, 94, 0.14);
-  --accent-glow: rgba(227, 185, 94, 0.4);
-  --felt-gold: #f0d79a;
-  --card-face: #fdfaf2;
+  /* A deep, cool emerald rather than a lit pool-table green: it is the
+     largest thing on screen, and a saturated one shouted over the cards. */
+  --felt-hi: #21664d;
+  --felt: #164a38;
+  --felt-lo: #0a2a20;
+  /* Dark padded leather, close to the ink of the page, so the felt reads
+     as set into the table rather than floating on a brown ring. */
+  --rail-hi: #3a2a1e;
+  --rail: #22170f;
+  --rail-lo: #100a06;
+  --brass: rgba(214, 176, 106, 0.5);
+  --accent: #d6b06a;
+  --accent-soft: rgba(214, 176, 106, 0.12);
+  --accent-glow: rgba(214, 176, 106, 0.36);
+  --felt-gold: #ecd3a0;
+  --card-face: #faf6ec;
+  /* The seat plate's own surface: opaque, so a seat over the rail hides
+     the rail instead of showing it through. */
+  --plate: #15120f;
+  --plate-hi: #1f1a15;
 
   align-self: stretch;
   width: 100%;
@@ -1621,34 +1630,49 @@ body::before {
   margin: 0 auto;
 }
 
-/* A walnut rail with a brass hairline, wrapping an emerald felt. The
+/* A padded leather rail with a brass trim, wrapping an emerald felt. The
    palette is scoped to .pk-wrap so poker can look like poker without
    disturbing the rest of Level 0. */
-/* Size and position are set from JS, which holds the table to a
-   table-like shape rather than letting it stretch to the window. */
+/* Size, position, rail width and corner radius are all set from JS, which
+   holds the table to a racetrack rather than letting it stretch. */
 .pk-rail {
   position: absolute;
-  border-radius: 50%;
+  border-radius: var(--rail-r, 50%);
   background:
-    linear-gradient(160deg, var(--rail-hi) 0%, var(--rail) 42%, var(--rail-lo) 100%);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), transparent 36%, rgba(0, 0, 0, 0.28)),
+    radial-gradient(120% 90% at 50% 18%, var(--rail-hi) 0%, var(--rail) 55%, var(--rail-lo) 100%);
   box-shadow:
-    inset 0 2px 3px rgba(255, 255, 255, 0.16),
-    inset 0 -3px 6px rgba(0, 0, 0, 0.5),
-    0 18px 50px rgba(0, 0, 0, 0.6),
-    0 2px 0 rgba(0, 0, 0, 0.4);
-  padding: 2.6%;
+    0 0 0 1px rgba(214, 176, 106, 0.3),
+    0 0 0 4px rgba(8, 6, 4, 0.92),
+    0 30px 70px rgba(0, 0, 0, 0.72),
+    0 8px 18px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 -2px 5px rgba(0, 0, 0, 0.6);
+}
+/* Stitching down the middle of the rail — the detail that makes it read
+   as padded leather rather than a painted band. */
+.pk-rail::before {
+  content: '';
+  position: absolute;
+  inset: calc(var(--rail-w, 12px) * 0.5 - 0.5px);
+  border-radius: max(0px, calc(var(--rail-r, 50%) - var(--rail-w, 12px) * 0.5));
+  border: 1px dashed rgba(236, 211, 160, 0.12);
+  pointer-events: none;
 }
 
 .pk-felt {
   position: absolute;
-  inset: 2.6%;
-  border-radius: 50%;
+  inset: var(--rail-w, 12px);
+  border-radius: max(0px, calc(var(--rail-r, 50%) - var(--rail-w, 12px)));
   background:
-    radial-gradient(ellipse at 50% 34%, var(--felt-hi) 0%, var(--felt) 48%, var(--felt-lo) 100%);
+    radial-gradient(80% 55% at 50% 42%, rgba(255, 255, 255, 0.06), transparent 72%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.6 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.45'/%3E%3C/svg%3E"),
+    radial-gradient(ellipse at 50% 45%, var(--felt-hi) 0%, var(--felt) 52%, var(--felt-lo) 100%);
   box-shadow:
-    inset 0 0 0 2px rgba(212, 175, 110, 0.35),
-    inset 0 6px 26px rgba(0, 0, 0, 0.45),
-    inset 0 0 70px rgba(0, 0, 0, 0.28);
+    0 0 0 1.5px var(--brass),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.45),
+    inset 0 12px 30px rgba(0, 0, 0, 0.5),
+    inset 0 0 90px rgba(0, 0, 0, 0.35);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1657,10 +1681,53 @@ body::before {
   /* The bottom of the felt belongs to your own cards, which reach up into
      it from your seat. Reserving it is what keeps the board and the pot
      centred in the part of the felt you can actually see. */
-  padding: 0.5rem 0.5rem calc(0.5rem + var(--felt-bottom, 0px));
+  padding: calc(0.5rem + var(--felt-top, 0px)) 0.5rem calc(0.5rem + var(--felt-bottom, 0px));
 }
 
-.pk-board { display: flex; gap: 0.38rem; }
+/* The betting line: a fine gold racetrack inset into the felt, the one
+   piece of printing a card-room table has. */
+.pk-felt::before {
+  content: '';
+  position: absolute;
+  inset: calc(var(--card, 28px) * 0.62);
+  border-radius: max(0px, calc(var(--rail-r, 50%) - var(--rail-w, 12px) - var(--card, 28px) * 0.62));
+  border: 1px solid rgba(214, 176, 106, 0.15);
+  pointer-events: none;
+}
+
+.pk-board { display: flex; gap: 0.38rem; position: relative; }
+
+/* The house mark, printed faintly into the felt below the pot. Placed
+   from JS, which only shows it where the felt has room to spare. */
+.pk-felt-mark {
+  position: absolute;
+  left: 50%;
+  bottom: var(--mark-bottom, 20%);
+  transform: translate(-50%, 50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  pointer-events: none;
+  white-space: nowrap;
+  color: rgba(236, 211, 160, 0.16);
+}
+.pk-felt-mark-name {
+  font-family: var(--font-display);
+  font-size: calc(var(--card, 28px) * 0.52);
+  font-weight: 600;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  padding-left: 0.28em;
+}
+.pk-felt-mark-game {
+  font-size: calc(var(--card, 28px) * 0.24);
+  font-weight: 500;
+  letter-spacing: 0.4em;
+  text-transform: uppercase;
+  padding-left: 0.4em;
+  color: rgba(236, 211, 160, 0.12);
+}
 /* Sized to the gap the seats actually leave, never larger than a
    normal card. */
 .pk-board .pk-card {
@@ -1692,23 +1759,26 @@ body::before {
 [data-tier="5"] .pk-chip { --chip: #6b3fa0; }
 
 .pk-pot {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.45rem;
   font-size: clamp(0.9rem, 1.6vw, 1.15rem);
   font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--accent);
-  background: rgba(0, 0, 0, 0.42);
-  padding: 0.22rem 0.75rem;
+  letter-spacing: 0.03em;
+  color: var(--felt-gold);
+  background: rgba(4, 16, 12, 0.55);
+  padding: 0.24rem 0.8rem 0.24rem 0.6rem;
   border-radius: 999px;
-  border: 1px solid rgba(214, 176, 106, 0.18);
+  border: 1px solid rgba(214, 176, 106, 0.26);
+  box-shadow: 0 6px 16px -8px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 .pk-pot-label {
-  font-size: 0.62em;
-  letter-spacing: 0.14em;
+  font-size: 0.58em;
+  font-weight: 500;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: var(--text-secondary);
+  color: rgba(236, 228, 212, 0.6);
 }
 .pk-pot-amt { font-variant-numeric: lining-nums tabular-nums; }
 .pk-pot-note {
@@ -1737,14 +1807,19 @@ body::before {
   transform: translateX(-50%);
   width: min(100%, 640px);
   text-align: center;
-  padding: 0.6rem 1rem;
+  padding: 0.75rem 1rem 0.8rem;
   border-radius: var(--radius-lg);
-  background: var(--accent-soft);
-  border: 1px solid var(--accent);
-  box-shadow: 0 0 18px var(--accent-glow);
-  backdrop-filter: blur(3px);
+  background:
+    radial-gradient(80% 120% at 50% 0%, rgba(214, 176, 106, 0.16), transparent 70%),
+    var(--plate);
+  border: 1px solid rgba(214, 176, 106, 0.55);
+  box-shadow: 0 18px 40px -16px rgba(0, 0, 0, 0.9), 0 0 24px -6px var(--accent-glow),
+    inset 0 0 0 3px var(--plate), inset 0 0 0 4px rgba(214, 176, 106, 0.14);
   animation: pk-result-in var(--t-med) ease-out;
 }
+/* The banner takes the controls' slot; whatever the slot was saying
+   underneath ("You finished 4th…") must not show round its edges. */
+.pk-wrap.is-result .pk-actionbar > * { visibility: hidden; }
 .pk-result:not(.is-showing) { display: none; }
 
 @keyframes pk-result-in {
@@ -1753,16 +1828,21 @@ body::before {
 }
 
 .pk-result-title {
-  font-size: 1.05rem;
+  font-family: var(--font-display);
+  font-size: 1.2rem;
   font-weight: 600;
-  color: var(--accent);
-  line-height: 1.3;
+  color: var(--felt-gold);
+  line-height: 1.25;
 }
 .pk-result-sub {
-  font-size: 0.8rem;
-  color: var(--text-primary);
-  margin-top: 0.15rem;
+  font-size: 0.66rem;
+  font-weight: 500;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-top: 0.3rem;
 }
+.pk-result-sub:empty { display: none; }
 
 /* ── Cards ── */
 
@@ -1771,14 +1851,17 @@ body::before {
   width: calc(var(--card, 28px) * 1.15);
   aspect-ratio: 5 / 7;
   border-radius: 5px;
-  background: linear-gradient(158deg, var(--card-face) 0%, #ece2cd 100%);
+  background: linear-gradient(160deg, #fffdf8 0%, var(--card-face) 45%, #ebe2cf 100%);
   color: #16110b;
   display: flex;
   align-items: center;
   justify-content: center;
   line-height: 1;
   font-weight: 600;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 1px 1px rgba(0, 0, 0, 0.3),
+    0 5px 12px -2px rgba(0, 0, 0, 0.5),
+    inset 0 0 0 1px rgba(60, 40, 10, 0.1);
   user-select: none;
   flex: none;
   backface-visibility: hidden;
@@ -1796,7 +1879,7 @@ body::before {
   align-items: center;
   line-height: 0.92;
 }
-.pk-card-rank { font-size: 1em; font-weight: 700; }
+.pk-card-rank { font-size: 1em; font-weight: 700; letter-spacing: -0.04em; }
 .pk-card-suit { font-size: 0.72em; }
 .pk-card-pip {
   font-size: 1.5em;
@@ -1805,20 +1888,24 @@ body::before {
   margin-top: 0.24em;
   margin-left: 0.24em;
 }
-.pk-card.is-red { color: #b23a34; }
+.pk-card.is-red { color: #a8322d; }
 .pk-card.is-black { color: #14100a; }
 
+/* A printed back: oxblood with a fine gold lattice inside a white
+   border, the way a deck of real cards is finished. */
 .pk-card.is-back {
   background:
-    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.06) 0 3px, transparent 3px 7px),
-    linear-gradient(158deg, #8c2b34 0%, #5e1a22 100%);
+    repeating-linear-gradient(45deg, rgba(236, 211, 160, 0.17) 0 1px, transparent 1px 4px),
+    repeating-linear-gradient(-45deg, rgba(236, 211, 160, 0.17) 0 1px, transparent 1px 4px),
+    linear-gradient(160deg, #6e1f2c 0%, #3c0f18 100%);
   box-shadow:
-    0 2px 6px rgba(0, 0, 0, 0.5),
-    inset 0 0 0 1.5px rgba(240, 215, 154, 0.35);
+    0 2px 5px rgba(0, 0, 0, 0.55),
+    inset 0 0 0 1.5px #efe6d2,
+    inset 0 0 0 2.5px rgba(150, 110, 50, 0.9);
 }
 .pk-card.is-slot {
-  background: rgba(255, 255, 255, 0.035);
-  border: 1px dashed rgba(255, 255, 255, 0.09);
+  background: rgba(0, 0, 0, 0.14);
+  border: 1px solid rgba(214, 176, 106, 0.12);
   box-shadow: none;
 }
 .pk-card.is-winning {
@@ -1841,6 +1928,16 @@ body::before {
   border-radius: 3px;
 }
 
+/* Two cards held, not two cards laid side by side: they overlap a little
+   and fan from the bottom. Uses `rotate` rather than `transform` so the
+   deal and flip animations, which own `transform`, still play over it. */
+.pk-seat-cards .pk-card { transform-origin: 50% 100%; }
+.pk-seat-cards .pk-card + .pk-card { margin-left: calc(var(--card, 28px) * -0.2); }
+.pk-seat-cards .pk-card.is-back:first-child { rotate: -9deg; }
+.pk-seat-cards .pk-card.is-back:last-child { rotate: 9deg; }
+.pk-seat-cards .pk-card:not(.is-back):first-child { rotate: -4deg; }
+.pk-seat-cards .pk-card:not(.is-back):last-child { rotate: 4deg; }
+
 /* Your own hand is the single most important thing on screen, and it is
    the same size as the community cards — the layout reserves room at the
    bottom of the felt for exactly this, so the size has to agree with what
@@ -1848,10 +1945,17 @@ body::before {
    compact card rule further down, which used to win by source order and
    silently draw a bigger card than the felt had made room for. */
 .pk-table .pk-seat.is-me .pk-card.is-mini {
-  width: min(var(--board-card, 32px), calc(var(--card, 28px) * var(--hero-cap, 1.9)));
+  width: var(--hero-card, var(--board-card, 32px));
   border-radius: 6px;
-  font-size: calc(var(--card, 28px) * 0.4);
+  font-size: calc(var(--hero-card, var(--board-card, 32px)) * 0.3);
+  box-shadow:
+    0 1px 1px rgba(0, 0, 0, 0.3),
+    0 10px 22px -4px rgba(0, 0, 0, 0.6),
+    inset 0 0 0 1px rgba(60, 40, 10, 0.1);
 }
+.pk-table .pk-seat.is-me .pk-card + .pk-card { margin-left: calc(var(--hero-card, 32px) * -0.12); }
+.pk-table .pk-seat.is-me .pk-card:first-child { rotate: -5deg; }
+.pk-table .pk-seat.is-me .pk-card:last-child { rotate: 5deg; }
 
 /* ── Seats ── */
 
@@ -1964,11 +2068,17 @@ body::before {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
+  gap: 0.06rem;
+  background: linear-gradient(180deg, var(--plate-hi) 0%, var(--plate) 100%);
+  border: 1px solid rgba(214, 176, 106, 0.2);
   border-radius: var(--radius);
   padding: 0.16rem 0.3rem;
   text-align: center;
+  box-shadow:
+    0 10px 22px -8px rgba(0, 0, 0, 0.85),
+    0 2px 4px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition: border-color var(--t-med), background var(--t-med), box-shadow var(--t-med);
   /* No overflow clip here — the blind marker hangs off the right edge,
      and the name truncates itself. */
 }
@@ -1986,7 +2096,8 @@ body::before {
    at every table size — against the card unit, a big table got big
    plates with small print on them. */
 .pk-seat-name {
-  font-size: calc(var(--seat-h, 62px) * 0.185);
+  font-size: calc(var(--seat-h, 62px) * 0.19);
+  font-weight: 500;
   line-height: 1.1;
   color: var(--text-primary);
   white-space: nowrap;
@@ -2007,28 +2118,46 @@ body::before {
 /* Playing style, solo tables only — the label is how you learn to read
    an opponent, so it is legible rather than decorative. */
 .pk-seat-style {
-  font-size: calc(var(--seat-h, 62px) * 0.145);
+  font-size: calc(var(--seat-h, 62px) * 0.125);
+  font-weight: 500;
   line-height: 1.05;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--accent);
-  opacity: 0.85;
+  color: var(--text-secondary);
 }
 
+/* The stack sits under a hairline — name above, money below, the way a
+   seat card in a card room is laid out. */
 .pk-seat-chips {
-  font-size: calc(var(--seat-h, 62px) * 0.205);
-  line-height: 1.1;
+  align-self: center;
+  margin-top: 0.08rem;
+  padding-top: 0.1rem;
+  border-top: 1px solid rgba(214, 176, 106, 0.16);
+  min-width: 70%;
+  font-size: calc(var(--seat-h, 62px) * 0.2);
+  line-height: 1.15;
   font-weight: 600;
-  color: var(--accent);
+  color: var(--felt-gold);
   letter-spacing: 0.02em;
   font-variant-numeric: lining-nums tabular-nums;
 }
 
-/* Live, folded and busted have to be tellable apart instantly. */
-.pk-seat.is-live .pk-seat-plate { border-color: var(--border-strong); }
-.pk-seat.is-folded { opacity: 0.55; filter: grayscale(0.7); }
-.pk-seat.is-out { opacity: 0.34; filter: grayscale(1); }
-.pk-seat.is-out .pk-seat-chips { color: var(--text-dim); font-weight: 400; }
+/* Live, folded and busted have to be tellable apart instantly. The plate
+   stays solid either way and only its contents fade — fading the whole
+   seat turned it see-through, and a folded player became a ghost box
+   with the rail showing through it. */
+.pk-seat.is-live .pk-seat-plate { border-color: rgba(214, 176, 106, 0.32); }
+.pk-seat.is-folded .pk-seat-plate,
+.pk-seat.is-out .pk-seat-plate {
+  background: var(--plate);
+  border-color: rgba(236, 228, 212, 0.07);
+  box-shadow: 0 8px 18px -10px rgba(0, 0, 0, 0.8);
+}
+.pk-seat.is-folded .pk-seat-plate > :not(.pk-seat-mark) { opacity: 0.45; }
+.pk-seat.is-out .pk-seat-plate > :not(.pk-seat-mark) { opacity: 0.3; }
+.pk-seat.is-folded .pk-seat-chips,
+.pk-seat.is-out .pk-seat-chips { color: var(--text-secondary); border-top-color: rgba(236, 228, 212, 0.08); }
+.pk-seat.is-out .pk-seat-chips { font-weight: 400; }
 .pk-seat.is-offline .pk-seat-name { color: var(--danger); }
 
 .pk-seat.is-acting .pk-seat-plate {
@@ -2037,17 +2166,19 @@ body::before {
 }
 .pk-seat.is-winner .pk-seat-plate {
   border-color: var(--accent);
-  background: var(--accent-soft);
+  background:
+    radial-gradient(100% 90% at 50% 0%, rgba(214, 176, 106, 0.22), transparent 75%),
+    var(--plate-hi);
 }
-.pk-seat.is-me .pk-seat-plate { border-color: var(--border-strong); }
-.pk-seat.is-me .pk-seat-name { color: var(--accent); }
+.pk-seat.is-me .pk-seat-plate { border-color: rgba(214, 176, 106, 0.42); }
+.pk-seat.is-me .pk-seat-name { color: var(--felt-gold); }
 
 .pk-seat-timer {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 3px;
+  left: 12%;
+  right: 12%;
+  bottom: 2px;
+  height: 2px;
   background: rgba(255, 255, 255, 0.08);
   border-radius: 2px;
   overflow: hidden;
@@ -2060,14 +2191,16 @@ body::before {
 }
 .pk-seat-timer-fill.is-low { background: var(--danger); }
 
+/* Blinds are small dark pucks; the dealer button is the ivory one every
+   table has, so it is the marker you find first. */
 .pk-seat-mark {
   position: absolute;
   top: 50%;
   right: -0.55rem;
   transform: translateY(-50%);
-  font-size: 0.55rem;
+  font-size: 0.5rem;
   font-weight: 600;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
   min-width: 1.2rem;
   height: 1.2rem;
   padding: 0 0.2rem;
@@ -2075,25 +2208,30 @@ body::before {
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  background: var(--bg-surface-2);
-  border: 1px solid var(--border-strong);
-  color: var(--text-secondary);
+  background: #0d0b09;
+  border: 1px solid rgba(214, 176, 106, 0.35);
+  color: var(--felt-gold);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.6);
 }
 .pk-seat-mark.is-button {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #14100a;
+  background: radial-gradient(circle at 50% 35%, #ffffff 0%, #f1ead9 55%, #d9cfb9 100%);
+  border-color: rgba(0, 0, 0, 0.35);
+  color: #1a140c;
+  font-size: 0.56rem;
   font-weight: 700;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.7), inset 0 0 0 2px rgba(255, 255, 255, 0.6), inset 0 0 0 3px rgba(0, 0, 0, 0.12);
 }
 
 /* What a player just did — the main way you follow the action, so it is
    readable and colour-coded by how aggressive it was. */
 .pk-seat-action {
-  font-size: 0.66rem;
+  font-size: 0.6rem;
+  font-weight: 500;
   white-space: nowrap;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--text-secondary);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
 }
 .pk-seat-action.is-aggressive { color: var(--accent); font-weight: 600; }
 .pk-seat-action.is-passive { color: var(--text-dim); }
@@ -2101,14 +2239,14 @@ body::before {
 .pk-seat-bet {
   display: flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.28rem;
   font-size: 0.68rem;
   font-weight: 600;
   color: var(--text-primary);
-  background: rgba(0, 0, 0, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(4, 14, 10, 0.62);
+  border: 1px solid rgba(214, 176, 106, 0.2);
   border-radius: 999px;
-  padding: 0.08rem 0.42rem;
+  padding: 0.08rem 0.45rem 0.08rem 0.25rem;
   font-variant-numeric: lining-nums tabular-nums;
 }
 
@@ -2118,6 +2256,7 @@ body::before {
   max-width: 100%;
   font-size: max(0.6rem, calc(var(--card, 28px) * 0.34));
   color: var(--felt-gold);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
   text-align: center;
   line-height: 1.2;
   white-space: nowrap;
@@ -2217,6 +2356,7 @@ body::before {
   .pk-topbar-blinds.is-raised,
   .pk-pot.is-bumped,
   .pk-seat-delta.is-flying,
+  .pk-waiting-dot,
   .pk-seat.is-acting .pk-seat-plate { animation: none; }
   .pk-chip-ghost { transition: none; }
 }
@@ -2283,10 +2423,11 @@ body::before {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-strong);
+  background: linear-gradient(180deg, var(--plate-hi), var(--plate));
+  border: 1px solid rgba(214, 176, 106, 0.18);
   border-radius: var(--radius-lg);
   padding: 0.75rem;
+  box-shadow: 0 -10px 30px -18px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .pk-raise {
@@ -2298,9 +2439,10 @@ body::before {
 }
 .pk-raise-amount {
   grid-area: amount;
-  font-size: 1rem;
+  font-family: var(--font-display);
+  font-size: 1.15rem;
   font-weight: 600;
-  color: var(--accent);
+  color: var(--felt-gold);
   min-width: 5rem;
   font-variant-numeric: lining-nums tabular-nums;
 }
@@ -2310,24 +2452,26 @@ body::before {
   width: 100%;
   -webkit-appearance: none;
   appearance: none;
-  height: 4px;
+  height: 3px;
   border-radius: 2px;
-  background: var(--bg-surface-2);
-  border: 1px solid var(--border);
+  background: rgba(214, 176, 106, 0.22);
+  border: none;
   outline: none;
 }
 .pk-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 1.2rem; height: 1.2rem;
+  width: 1.3rem; height: 1.3rem;
   border-radius: 50%;
-  background: var(--accent);
+  background: radial-gradient(circle at 50% 35%, var(--brand-hi), var(--accent) 60%, var(--brand-lo));
+  box-shadow: 0 0 0 4px rgba(214, 176, 106, 0.14), 0 2px 6px rgba(0, 0, 0, 0.6);
   cursor: pointer; border: none;
 }
 .pk-slider::-moz-range-thumb {
-  width: 1.2rem; height: 1.2rem;
+  width: 1.3rem; height: 1.3rem;
   border-radius: 50%;
-  background: var(--accent);
+  background: radial-gradient(circle at 50% 35%, var(--brand-hi), var(--accent) 60%, var(--brand-lo));
+  box-shadow: 0 0 0 4px rgba(214, 176, 106, 0.14), 0 2px 6px rgba(0, 0, 0, 0.6);
   cursor: pointer; border: none;
 }
 
@@ -2340,13 +2484,15 @@ body::before {
 }
 .pk-preset {
   font: inherit;
-  font-size: 0.72rem;
-  letter-spacing: 0.04em;
-  padding: 0.4rem 0.2rem;
+  font-size: 0.62rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 0.45rem 0.2rem;
   color: var(--text-secondary);
-  background: var(--bg-surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
   cursor: pointer;
   transition: color var(--t-fast), border-color var(--t-fast);
 }
@@ -2359,39 +2505,85 @@ body::before {
   gap: 0.5rem;
 }
 
+/* What the button does in spaced capitals, and how much in figures you
+   can read at a glance beneath it. */
 .pk-btn {
   font: inherit;
-  font-size: 0.88rem;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  padding: 0.85rem 0.4rem;
+  min-height: 3.3rem;
+  padding: 0.5rem 0.4rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
   border-radius: var(--radius);
   border: 1px solid var(--border-strong);
-  background: var(--bg-surface-2);
+  background: var(--ink-2);
   color: var(--text-primary);
   cursor: pointer;
-  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast);
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast), transform var(--t-fast);
+  min-width: 0;
+}
+.pk-btn > span {
+  max-width: 100%;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.pk-btn-verb {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.pk-btn-amt {
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+.pk-btn:active { transform: translateY(1px) scale(0.99); }
 .pk-btn:hover { border-color: var(--accent); }
+.pk-btn-fold { color: var(--text-secondary); }
 .pk-btn-fold:hover { border-color: var(--danger); color: var(--danger); }
 .pk-btn-raise {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #14100a;
-  font-weight: 600;
+  background: linear-gradient(180deg, var(--brand-hi), var(--accent) 60%, #c39c55);
+  border-color: transparent;
+  color: var(--brand-ink);
+  box-shadow: 0 10px 24px -14px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
-.pk-btn-raise:hover { filter: brightness(1.08); }
+.pk-btn-raise .pk-btn-verb { color: rgba(31, 22, 7, 0.75); }
+.pk-btn-raise:hover { filter: brightness(1.05); }
 
 /* Waiting is not an event — it gets a quiet line inside the reserved
    action space, not a panel the size of the controls themselves. */
 .pk-waiting {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
   text-align: center;
-  font-size: 0.82rem;
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
   color: var(--text-secondary);
-  padding: 0.9rem 0.75rem;
+  padding: 0.55rem 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.pk-waiting-name { color: var(--felt-gold); font-weight: 500; }
+.pk-waiting-dot {
+  width: 6px;
+  height: 6px;
+  margin-right: 0.35rem;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent-glow);
+  animation: pk-breathe 1.6s ease-in-out infinite;
+}
+@keyframes pk-breathe {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50%      { opacity: 1; transform: scale(1); }
 }
 
 /* ── Final standings ── */
@@ -2498,7 +2690,12 @@ body::before {
   .pk-presets { display: flex; gap: 0.22rem; }
   .pk-preset { padding: 0.24rem 0.32rem; font-size: 0.64rem; }
   .pk-actions > .pk-buttons { flex: 0 0 auto; gap: 0.35rem; }
-  .pk-btn { padding: 0.45rem 0.7rem; font-size: 0.78rem; }
+  /* There is width to spare here and no height: verb and amount share
+     one line. */
+  .pk-btn { flex-direction: row; gap: 0.35rem; min-height: 0; padding: 0.5rem 0.75rem; }
+  .pk-btn-verb { font-size: 0.62rem; }
+  .pk-btn-amt { font-size: 0.8rem; }
+  .pk-waiting { padding: 0.35rem 0.9rem; }
 
   .pk-result { padding: 0.3rem 0.8rem; }
   .pk-result-title { font-size: 0.85rem; }
@@ -2519,10 +2716,8 @@ body::before {
      which is what produced the thick brown band.) */
   /* Seat width follows the card unit, which already scales with the
      table — the old viewport-based widths fought it. */
-  .pk-btn { font-size: 0.8rem; padding: 0.8rem 0.3rem; }
   .pk-topbar { font-size: 0.66rem; }
   .pk-result-title { font-size: 0.92rem; }
   .pk-log { font-size: 0.74rem; min-height: 2.3rem; line-height: 1.45; }
   .pk-actions { padding: 0.6rem; gap: 0.5rem; }
-  .pk-btn { padding: 0.75rem 0.3rem; }
 }

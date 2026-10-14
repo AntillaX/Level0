@@ -191,7 +191,7 @@ const SEAT_ANGLES = {
   // A tall table: seats run up both sides, two at the top.
   portrait: {
     9: [0, 38, 77, 111, 158, 202, 249, 283, 322],
-    5: [0, 60, 133, 227, 300],
+    5: [0, 60, 145, 215, 300],
   },
   // A wide table: seats spread along the top and bottom edges, because
   // the ends of a flat ellipse have almost no room.
@@ -249,22 +249,63 @@ function labelRoom(unit, compact) {
 // How far past the rail a seat's centre sits, as a fraction of the seat.
 // At 0.5 the seat clears the felt entirely and floats; at 0 it is centred
 // on the rail with most of the plate lying on the green.
-const SEAT_OUT = 0.28;
+//
+// Portrait sits its players on the rail, the way a phone poker room does.
+// Width is what a phone runs out of, and every pixel a side seat stands
+// off the rail comes straight out of the felt — floating them clear left
+// a table two thirds the width of the screen with the board squeezed
+// into it. The plates are opaque, so a seat over the rail reads as a
+// player at the table rather than a box on top of one.
+const SEAT_OUT = { portrait: 0.06, landscape: 0.28 };
 
-// One shape per orientation and table size, rather than a range the box
-// can push the table anywhere within. A poker table is a specific object;
-// letting the window decide its proportions is what produced the slivers
-// and eggs. Portrait stands the table up the way every phone poker room
-// does — held to a wide oval it could only be as big as the screen was
-// narrow, and left a third of the phone empty.
+// The squattest the table may be, per orientation. A poker table is a
+// specific object; letting the window push its proportions anywhere is
+// what produced the slivers and eggs. Portrait stands the table up the way
+// every phone poker room does — held to a wide oval it could only be as
+// big as the screen was narrow, and left a third of the phone empty. How
+// far it stands up is decided in tableLayout, from the box.
 function tableAspect(portrait, seatCount, w, h) {
-  if (portrait) return seatCount > 6 ? 0.64 : 0.82;
+  if (portrait) return 0.82;
   // In landscape the box itself can be very flat — a phone with its
   // browser chrome leaves about 840x220 — and a strict 2.45:1 table that
   // fits that vertically is a small oval in a wide black field. Follow
   // the box a little, but never far enough to make the felt a canoe.
   const base = seatCount > 6 ? 2.8 : 2.4;
   return clamp((w / h) * 0.9, base, 3.4);
+}
+
+// A real poker table is a racetrack — two straight sides and round ends —
+// not an ellipse, and that shape is most of why one looks like furniture
+// and the other like a diagram. The seat angles above were placed on an
+// ellipse, so a seat keeps its angle: take its point on the ellipse and
+// carry it straight out to the racetrack of the same size. Near the ends
+// that moves nothing; at the shoulders it follows the corner out.
+function onRacetrack(rx, ry, deg) {
+  const a = (deg * Math.PI) / 180;
+  const ex = rx * Math.sin(a);
+  const ey = ry * Math.cos(a);
+  const len = Math.hypot(ex, ey) || 1;
+  const dx = ex / len;
+  const dy = ey / len;
+  const r = Math.min(rx, ry);
+  const lx = rx - r;  // half-length of the straight edges, along whichever
+  const ly = ry - r;  // axis is the long one (the other is zero)
+
+  // The straight edges first...
+  if (ly > 0 && Math.abs(dx) > 1e-9) {
+    const t = rx / Math.abs(dx);
+    if (Math.abs(t * dy) <= ly) return { x: t * dx, y: t * dy };
+  }
+  if (lx > 0 && Math.abs(dy) > 1e-9) {
+    const t = ry / Math.abs(dy);
+    if (Math.abs(t * dx) <= lx) return { x: t * dx, y: t * dy };
+  }
+  // ...then the round end the ray is heading into.
+  const cx = Math.sign(dx) * lx;
+  const cy = Math.sign(dy) * ly;
+  const b = dx * cx + dy * cy;
+  const t = b + Math.sqrt(Math.max(0, b * b - (cx * cx + cy * cy) + r * r));
+  return { x: t * dx, y: t * dy };
 }
 
 // Everything the table needs, in one pass. Deterministic in the box size
@@ -276,6 +317,7 @@ function tableLayout(w, h, seatCount) {
   const compact = h < 330;
 
   const seat = seatBox(w, h, compact);
+  const out = SEAT_OUT[portrait ? 'portrait' : 'landscape'];
 
   // The unit is the one number everything else is expressed in, and which
   // budget binds depends on the shape of the box. In portrait it is the
@@ -287,25 +329,47 @@ function tableLayout(w, h, seatCount) {
   //
   // halfY is what a seat's outer edge leaves between the table's centre
   // and the edge of the box; the cards overhead and the felt share it.
-  const halfY = h / 2 - seat.h * (0.5 + SEAT_OUT);
+  const halfY = h / 2 - seat.h * (0.5 + out);
   const byWidth = w / (seatCount > 6 ? 13.2 : 11.8);
   const byHeight = halfY / 4.3;
   const unit = clamp(Math.min(byWidth, byHeight), 11, 44);
-
-  const aspect = tableAspect(portrait, seatCount, w, h);
 
   // The largest table of that shape whose ring still holds every seat
   // inside the box: a seat's centre sits SEAT_OUT past the rail, it hangs
   // off its own centre by half its size, and it carries cards above and
   // chips below that have to land on the table too.
   const overhang = Math.max(cardRoom(unit), labelRoom(unit, compact));
-  const roomRx = w / 2 - seat.w * (0.5 + SEAT_OUT);
+  const roomRx = w / 2 - seat.w * (0.5 + out);
   const roomRy = halfY - overhang;
+
+  // A tall racetrack can stand up to fill the phone: its sides are
+  // straight, so drawing it longer adds felt rather than turning it into
+  // the egg a stretched ellipse became. Held to one fixed shape it was as
+  // big as the screen was narrow and left a band of black above and below.
+  // The bounds keep it a table — never squatter than a five-handed one
+  // ever was, never so tall the ends of the felt go to waste. A short phone
+  // gets the squat end, which is what keeps a nine-handed ring from
+  // stacking its bottom seats on top of yours.
+  const squat = tableAspect(portrait, seatCount, w, h);
+  const aspect = portrait
+    ? clamp(roomRx / Math.max(1, roomRy), seatCount > 6 ? 0.5 : 0.54, squat)
+    : squat;
+
   const railRx = Math.max(unit * 2.2, Math.min(roomRx, roomRy * aspect));
   const railRy = Math.max(unit * 2, railRx / aspect);
 
-  const ringRx = railRx + seat.w * SEAT_OUT;
-  const ringRy = railRy + seat.h * SEAT_OUT;
+  // The rail is a fixed band rather than a percentage of the table, so it
+  // reads as the same padded edge all the way round — as a percentage it
+  // came out thinner along the long sides than at the ends.
+  const railW = clamp(unit * 0.44, 9, 20);
+
+  // Seats only sit on the rail when the width forces them to. A table held
+  // narrow by a short box has room either side, and there they stand off
+  // it as far as a wide table's would — pulled in onto a narrow rail, the
+  // two at the top end of a nine-handed table met in the middle.
+  const outX = clamp((w / 2 - seat.w / 2 - railRx) / seat.w, out, SEAT_OUT.landscape);
+  const ringRx = railRx + seat.w * outX;
+  const ringRy = railRy + seat.h * out;
 
   // Which way a seat's cards lie. Up, out of the way, almost everywhere —
   // but on a wide table a seat on the side has its neighbours directly
@@ -319,9 +383,10 @@ function tableLayout(w, h, seatCount) {
   const positions = seatAngles(seatCount, portrait).map((deg) => {
     const a = (deg * Math.PI) / 180;
     const side = !portrait && Math.abs(Math.sin(a)) > 0.72;
+    const at = onRacetrack(ringRx, ringRy, deg);
     return {
-      x: 50 - ((ringRx * Math.sin(a)) / w) * 100,
-      y: 50 + ((ringRy * Math.cos(a)) / h) * 100,
+      x: 50 - (at.x / w) * 100,
+      y: 50 + (at.y / h) * 100,
       cards: !side ? 'up' : (Math.sin(a) > 0 ? 'right' : 'left'),
     };
   });
@@ -362,7 +427,7 @@ function tableLayout(w, h, seatCount) {
   // Your own seat is different, and is the one the felt keeps losing to.
   // Its cards don't so much clip the board as claim the bottom of the
   // felt, which the felt then has to centre its contents above.
-  const feltHalf = railRy * 0.948;
+  const feltHalf = railRy - railW;
   const heroY = ((positions[0].y - 50) / 100) * h;
   const headroom = feltHalf + heroY - seat.h / 2 - 40 - potH;
 
@@ -372,8 +437,13 @@ function tableLayout(w, h, seatCount) {
   // board could take the rest, was tried: below about 76px of headroom
   // the fixed reservation costs more than sharing does, and a phone in
   // landscape is well below that.
-  const heroCap = unit * 1.9;
-  cap = Math.min(cap, headroom / 2.8);
+  //
+  // In portrait your hand is drawn larger than the board — it is the one
+  // thing on the table that is yours, and a tall felt has the height to
+  // spare. The board's share of the headroom shrinks to match.
+  const heroCap = unit * (portrait ? 2.3 : 1.9);
+  const heroScale = portrait ? 1.22 : 1;
+  cap = Math.min(cap, headroom / (1.4 * (1 + heroScale)));
 
   // A floor, because five cards nobody can read are not a board. The
   // clearances above are conservative — each assumes every seat is at its
@@ -381,12 +451,61 @@ function tableLayout(w, h, seatCount) {
   // below what the felt visibly has. The overlap checks cover the floor.
   const boardCard = clamp(cap, Math.min(unit * 0.75, 22), unit * 1.5);
 
+  // Drawn larger only where the seats either side of yours leave room for
+  // it — never smaller than the board, which is the size it always was.
+  let heroCard = Math.min(boardCard * heroScale, heroCap);
+  const heroBase = Math.min(boardCard, heroCap);
+  const cardsFoot = heroY - seat.h / 2;
+  for (const n of [positions[1], positions[positions.length - 1]]) {
+    if (!n || positions.length < 2) continue;
+    const nx = Math.abs(((n.x - 50) / 100) * w);
+    const ny = ((n.y - 50) / 100) * h;
+    const level = cardsFoot - heroCard * 1.4 < ny + seat.h / 2 && cardsFoot > ny - seat.h / 2;
+    // Two fanned cards reach a little over one card's width either side.
+    if (level) heroCard = Math.max(heroBase, Math.min(heroCard, (nx - seat.w / 2 - 6) / 1.06));
+  }
+
   // What the felt has to keep clear at the bottom for those cards.
-  const heroCardTop = heroY - seat.h / 2 - Math.min(boardCard, heroCap) * 1.4;
+  const heroCardTop = heroY - seat.h / 2 - heroCard * 1.4;
   const feltBottom = Math.max(0, feltHalf - heroCardTop + 10);
 
+  // Where the board and pot actually land. The felt centres them in what
+  // your cards leave of it — but a seat above whose chips hang out over the
+  // board's width would have them lying across the flop, and on a short
+  // phone the floor on the card size means the cap above cannot always
+  // prevent that. So the felt starts below the lowest such strip instead,
+  // as far as there is room to: never pushing the cluster into your cards.
+  // In table coordinates, with the table's centre at 0.
+  const clusterH = boardCard * 1.4 + 8 + 30;
+  const contentTop = -feltHalf + 8;
+  const contentBottom = feltHalf - feltBottom - 8;
+  const boardHalfW = (boardCard * 5 + gap * 4) / 2;
+  let strip = -Infinity;
+  positions.forEach((p, i) => {
+    if (i === 0) return;
+    const sx = ((p.x - 50) / 100) * w;
+    const sy = ((p.y - 50) / 100) * h;
+    if (sy >= 0 || Math.abs(sx) - seat.w / 2 > boardHalfW + 4) return;
+    strip = Math.max(strip, sy + seat.h / 2 + labelRoom(unit, compact));
+  });
+  let clusterTop = (contentTop + contentBottom) / 2 - clusterH / 2;
+  let feltTop = 0;
+  if (strip + 4 > clusterTop) {
+    clusterTop = Math.max(clusterTop, Math.min(strip + 4, contentBottom - clusterH));
+    feltTop = Math.max(0, 2 * clusterTop + clusterH - contentBottom - contentTop);
+  }
 
-  return { unit, compact, seat, railRx, railRy, boardCard, feltBottom, heroCap, positions };
+  // The house mark goes in whatever felt the board and pot leave between
+  // themselves and your cards — on a tall table that is a good handful of
+  // empty green, which is what the cloth of a real table is printed on.
+  // It only appears where it fits, so it can never sit under the board.
+  const free = contentBottom - (clusterTop + clusterH);
+  const markBottom = feltHalf - (contentBottom - free / 2);
+
+  return {
+    unit, compact, seat, railRx, railRy, railW, boardCard, heroCard, feltBottom, feltTop, positions,
+    mark: free > 46 && railRx > 110 ? markBottom : null,
+  };
 }
 
 function applyMetrics(els, seatCount) {
@@ -400,10 +519,17 @@ function applyMetrics(els, seatCount) {
   table.style.setProperty('--card', L.unit + 'px');
   table.style.setProperty('--board-card', L.boardCard + 'px');
   table.style.setProperty('--felt-bottom', L.feltBottom + 'px');
-  table.style.setProperty('--hero-cap', L.heroCap / L.unit);
+  table.style.setProperty('--felt-top', L.feltTop + 'px');
+  table.style.setProperty('--hero-card', L.heroCard + 'px');
+  table.style.setProperty('--rail-w', L.railW + 'px');
+  // Round ends: the radius is half the short side, on the rail and on the
+  // felt inside it, so the two stay concentric.
+  table.style.setProperty('--rail-r', Math.min(L.railRx, L.railRy) + 'px');
   table.style.setProperty('--seat-w', L.seat.w + 'px');
   table.style.setProperty('--seat-h', L.seat.h + 'px');
   table.dataset.compact = L.compact ? '1' : '0';
+  setHidden(els.mark, L.mark === null);
+  if (L.mark !== null) table.style.setProperty('--mark-bottom', L.mark + 'px');
 
   els.rail.style.width = L.railRx * 2 + 'px';
   els.rail.style.height = L.railRy * 2 + 'px';
@@ -459,6 +585,11 @@ function mount(stage, p) {
     c.dataset.code = '';
     els.board.push(c);
   }
+
+  // Printed on the cloth: the house name, as a real card room's is.
+  els.mark = el('div', 'pk-felt-mark', felt);
+  el('span', 'pk-felt-mark-name', els.mark).textContent = 'PlatformVV';
+  el('span', 'pk-felt-mark-game', els.mark).textContent = 'Texas Hold’em';
 
   els.pot = el('div', 'pk-pot', felt);
   el('i', 'pk-chip', els.pot);
@@ -864,7 +995,13 @@ function buildWaiting(box, p) {
   else if (me && me.eliminated) setText(wrap, `You finished ${ordinal(me.place)} — watching the rest`);
   else if (me && me.folded) setText(wrap, 'You folded this hand');
   else if (me && me.allIn) setText(wrap, 'All-in — good luck');
-  else if (acting) setText(wrap, `Waiting on ${acting.name}…`);
+  else if (acting) {
+    // Someone is thinking: say who, in the house gold, with a slow pulse
+    // so the line reads as live rather than as a stuck message.
+    el('i', 'pk-waiting-dot', wrap);
+    el('span', null, wrap).textContent = 'Waiting on ';
+    el('b', 'pk-waiting-name', wrap).textContent = acting.name;
+  }
   else if (p.stage === 'showdown' || p.stage === 'handover') setText(wrap, 'Next hand shortly…');
   else setText(wrap, 'Dealing…');
 }
@@ -874,8 +1011,8 @@ function buildActions(box, p, legal) {
   let raiseBtn = null;
 
   const raiseLabel = () => {
-    if (view.raiseDraft >= legal.maxRaiseTo) return `All-in ${chips(legal.maxRaiseTo)}`;
-    return `${p.currentBet > 0 ? 'Raise to' : 'Bet'} ${chips(view.raiseDraft)}`;
+    if (view.raiseDraft >= legal.maxRaiseTo) return ['All-in', chips(legal.maxRaiseTo)];
+    return [p.currentBet > 0 ? 'Raise to' : 'Bet', chips(view.raiseDraft)];
   };
 
   if (legal.canRaise) {
@@ -902,7 +1039,7 @@ function buildActions(box, p, legal) {
     slider.addEventListener('input', () => {
       view.raiseDraft = Math.min(max, Math.max(min, Number(slider.value)));
       label();
-      if (raiseBtn) setText(raiseBtn, raiseLabel());
+      if (raiseBtn) btnLabel(raiseBtn, ...raiseLabel());
     });
 
     const presets = el('div', 'pk-presets', row);
@@ -921,7 +1058,7 @@ function buildActions(box, p, legal) {
         view.raiseDraft = v;
         slider.value = String(v);
         label();
-        if (raiseBtn) setText(raiseBtn, raiseLabel());
+        if (raiseBtn) btnLabel(raiseBtn, ...raiseLabel());
       });
     }
   }
@@ -930,20 +1067,18 @@ function buildActions(box, p, legal) {
 
   const fold = el('button', 'pk-btn pk-btn-fold', buttons);
   fold.type = 'button';
-  fold.textContent = 'Fold';
+  btnLabel(fold, 'Fold');
   fold.addEventListener('click', () => act({ kind: 'fold' }));
 
   if (legal.canCheck) {
     const check = el('button', 'pk-btn pk-btn-check', buttons);
     check.type = 'button';
-    check.textContent = 'Check';
+    btnLabel(check, 'Check');
     check.addEventListener('click', () => act({ kind: 'check' }));
   } else if (legal.canCall) {
     const call = el('button', 'pk-btn pk-btn-call', buttons);
     call.type = 'button';
-    call.textContent = legal.callAmount >= legal.maxRaiseTo
-      ? `Call all-in ${chips(legal.callAmount)}`
-      : `Call ${chips(legal.callAmount)}`;
+    btnLabel(call, legal.callAmount >= legal.maxRaiseTo ? 'Call all-in' : 'Call', chips(legal.callAmount));
     call.title = exact(legal.callAmount);
     call.addEventListener('click', () => act({ kind: 'call' }));
   }
@@ -951,9 +1086,24 @@ function buildActions(box, p, legal) {
   if (legal.canRaise) {
     raiseBtn = el('button', 'pk-btn pk-btn-raise', buttons);
     raiseBtn.type = 'button';
-    raiseBtn.textContent = raiseLabel();
+    btnLabel(raiseBtn, ...raiseLabel());
     raiseBtn.addEventListener('click', () => act({ kind: 'raise', to: view.raiseDraft }));
   }
+}
+
+// A button says what it does and, below that, how much. On one line the
+// amount was the part that got cut off — "Raise to $10…" — which is the
+// only part of the label you actually need to check before you tap.
+function btnLabel(btn, verb, amount) {
+  if (!btn._verb) {
+    btn.textContent = '';
+    btn._verb = el('span', 'pk-btn-verb', btn);
+    btn._amt = el('span', 'pk-btn-amt', btn);
+  }
+  setText(btn._verb, verb);
+  setText(btn._amt, amount || '');
+  setHidden(btn._amt, !amount);
+  btn.setAttribute('aria-label', amount ? `${verb} ${amount}` : verb);
 }
 
 function act(action) {
